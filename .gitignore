@@ -1,0 +1,25 @@
+# ===== WorkBuddy 本地记忆/配置（含个人项目记忆，隐私，不备份）=====
+.workbuddy/
+
+# ===== 测试套件（18M 回归资产，非核心交付物）=====
+_test/
+
+# ===== 旧备份与运行日志 =====
+_backup/
+logs/
+
+# ===== 依赖与缓存 =====
+node_modules/
+__pycache__/
+
+# ===== FL Spider 备份/副本/夹具 =====
+fl-crawler/*副本*.js
+fl-crawler/*.bak*
+fl-crawler/_test/
+
+# ===== output 中间产物（仅保留顶层 .md 方案文档）=====
+output/*/
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db

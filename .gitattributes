@@ -2,4 +2,4 @@
 * text=auto eol=lf
 
 # FL Spider 单文件必须保持 CRLF（项目纪律），按二进制原样处理，仓库与检出均不改行尾
-fl-crawler/FL Spider.user.js -text
+fl-crawler/FL Spider.user.js binary
