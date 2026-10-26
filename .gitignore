@@ -23,3 +23,12 @@ output/*/
 # ===== 系统/编辑器 =====
 .DS_Store
 Thumbs.db
+
+# ===== 无关临时文件（2026-10-27 补：迅雷/115/副本，不属本项目备份）=====
+.tmp_xunlei/
+115-sha1-catcher/
+xunlei_*.txt
+clean_legacy_data.js
+Film Library - 副本.html
+Film Library 收件箱_格式示例.json
+clipboard-images/
