@@ -1,0 +1,5 @@
+# 默认：文本文件统一以 LF 存储与检出，避免 Windows autocrlf 把 LF 源文件洗成 CRLF
+* text=auto eol=lf
+
+# FL Spider 单文件必须保持 CRLF（项目纪律），按二进制原样处理，仓库与检出均不改行尾
+fl-crawler/FL Spider.user.js -text

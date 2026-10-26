@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<!-- ============================================================================
+ * Film Library · 个人影片记录工作台（本地服务版）
+ * ----------------------------------------------------------------------------
+ * 架构（2026-10-14 定稿）：单文件 HTML 纯客户端 + FL Server 本地服务。
+ *   · 本文件不直接碰文件系统；所有读写走 http://127.0.0.1:8787（FL Server）
+ *   · 服务端是唯一写数据目录的进程：原子写、收件箱去重、导入归档、Range 视频
+ *   · 数据目录结构与旧版完全一致，旧 Film Library.json + covers/shots 零转换直读
+ *   · rating（评分）字段自 v2.0.0 起移除：读取忽略、保存不再写
+ *   · 状态统一为：未看 / 想看 / 已看
+ *
+ * 模块（本文件 script 标签内 IIFE，§0~§14）：
+ *   §0 常量与状态   §1 api 层   §2 数据层   §3 搜索语法引擎（自 v1 搬运）
+ *   §4 筛选排序预设 §5 虚拟滚动渲染 §6 批量   §7 详情/表单/备注 §8 灯箱
+ *   §9 收件箱       §10 统计    §11 导入导出 §12 事件绑定   §13 启动
+ * ==========================================================================-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Film Library · 个人影片记录工作台</title>
+<style>
+  :root{
+    --bg:#0d1520; --bg2:#111c2b; --card:#16222f; --card2:#1b2a3b;
+    --line:#24344a; --txt:#e5edf5; --muted:#8ba1b7;
+    --blue:#3b82f6; --blue-d:#2563eb; --green:#10b981; --green-d:#059669;
+    --red:#ef4444; --amber:#f59e0b;
+    --radius:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--txt); line-height:1.6; min-height:100vh;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+  input,select,textarea{font-family:inherit;font-size:14px;color:var(--txt);background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;outline:none;width:100%;}
+  input:focus,select:focus,textarea:focus{border-color:var(--blue);}
+  img{max-width:100%;height:auto;}
+  .wrap{max-width:min(1720px,97vw);margin:0 auto;padding:14px 16px 60px;}
+
+  /* ---------- 顶栏 ---------- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0 14px;flex-wrap:wrap;}
+  .brand{display:flex;align-items:baseline;gap:10px;}
+  .brand h1{font-size:20px;font-weight:700;letter-spacing:.5px;}
+  .brand .sub{font-size:12px;color:var(--muted);}
+  .dirbar-inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;line-height:1.25;}
+  .dirbar-inline .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);flex:none;}
+  .dirbar-inline.on .dot{background:var(--green);box-shadow:0 0 6px var(--green);}
+  .dirbar-inline .dpath{max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
+  .dirbar-inline .dpath b{color:#7dd3fc;font-weight:600;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:9px 14px;font-size:13.5px;min-height:40px;transition:.15s;}
+  .btn:hover{border-color:var(--muted);}
+  .btn.sm{padding:6px 11px;font-size:12.5px;min-height:34px;}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
+  .btn.primary:hover{background:var(--blue-d);}
+  .btn.green{background:var(--green);border-color:var(--green);color:#04261b;font-weight:600;}
+  .btn.green:hover{background:var(--green-d);color:#fff;}
+  .btn.danger{background:transparent;border-color:rgba(239,68,68,.5);color:#fca5a5;}
+  .btn.danger:hover{background:rgba(239,68,68,.12);}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;}
+
+  /* ---------- 四块导航 ---------- */
+  .mainTabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap;}
+  .mainTabs .tab{display:flex;align-items:center;gap:7px;padding:9px 16px;font-size:14.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .mainTabs .tab:hover{color:var(--txt);}
+  .mainTabs .tab.on{color:#7dd3fc;border-bottom-color:var(--blue);font-weight:600;}
+  .mainTabs .tab .n{background:var(--card2);border-radius:999px;padding:0 8px;font-size:12px;color:var(--muted);}
+
+  /* ---------- 想看清单 ---------- */
+
+  /* ---------- 主页布局：侧栏 + 内容 ---------- */
+  .layout{display:flex;gap:16px;align-items:flex-start;}
+  #topPanel{flex:0 0 264px;width:264px;display:flex;flex-direction:column;gap:12px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;}
+  #topPanel.fold{flex-basis:0;width:0;overflow:hidden;}
+  .side-block{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:11px 12px;}
+  .side-label{font-size:12px;color:var(--muted);margin-bottom:7px;letter-spacing:.5px;}
+  /* 可折叠块（库概况默认折叠）：用 details/summary，收起时不占下边距、右侧给 ▸/▾ 箭头 */
+  .side-block>summary.side-label{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;margin-bottom:0;}
+  .side-block>summary.side-label::-webkit-details-marker{display:none;}
+  .side-block>summary.side-label::after{content:'▸';font-size:11px;color:var(--muted);}
+  .side-block[open]>summary.side-label{margin-bottom:7px;}
+  .side-block[open]>summary.side-label::after{content:'▾';}
+  .chip-row{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);font-size:12.5px;color:var(--muted);}
+  .chip:hover{color:var(--txt);}
+  .chip.on{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.55);color:#60a5fa;}
+  .stat-line{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:2px 0;}
+  .stat-line b{color:var(--txt);font-weight:600;}
+  .stat-bars{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
+  .stat-bar{display:flex;align-items:center;gap:7px;font-size:12px;}
+  .stat-bar .t{flex:0 0 92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
+  .stat-bar .b{flex:1;height:7px;background:var(--bg2);border-radius:4px;overflow:hidden;}
+  .stat-bar .b i{display:block;height:100%;background:var(--blue);border-radius:4px;}
+  .stat-bar .n{flex:0 0 30px;text-align:right;color:var(--muted);}
+  .preset-row{display:flex;gap:6px;}
+  .preset-row input{flex:1;}
+  .preset-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .preset-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;}
+  .preset-item button{padding:2px 7px;border-radius:999px;font-size:12px;color:#7dd3fc;}
+  .preset-item .x{color:var(--muted);padding:2px 6px;}
+  .preset-item .x:hover{color:var(--red);}
+  .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
+  .tool-grid .btn{width:100%;}
+
+  .content{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;}
+
+  /* ---------- 搜索行 ---------- */
+  .search-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+  .search-box{position:relative;flex:1;min-width:220px;}
+  .search-box input{padding-left:34px;}
+  .search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none;opacity:.55;}
+  .search-scope{flex:0 0 118px;width:118px;}
+  .regex-toggle{flex:none;min-height:40px;padding:0 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);display:flex;align-items:center;}
+  .regex-toggle:hover{color:var(--txt);}
+  .regex-toggle.on{background:rgba(59,130,246,.16);color:#60a5fa;border-color:rgba(59,130,246,.5);}
+  .regex-hint{font-size:12px;color:var(--amber);display:none;width:100%;}
+  .regex-hint.show{display:block;}
+  .regex-hint.err{color:var(--red);}
+  .q-help-btn{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:13px;display:flex;align-items:center;justify-content:center;}
+  .q-help-btn:hover{color:var(--txt);border-color:var(--muted);}
+  .q-help{display:none;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--muted);width:100%;}
+  .q-help.show{display:block;line-height:1.9;}
+  .q-help code{background:var(--bg);border-radius:5px;padding:1px 6px;color:#7dd3fc;}
+
+  /* ---------- 视图条 + 虚拟滚动 ---------- */
+  .view-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);}
+  .view-bar .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  .view-bar .seg button{padding:6px 13px;font-size:12.5px;color:var(--muted);}
+  .view-bar .seg button.on{background:rgba(59,130,246,.18);color:#60a5fa;}
+  .view-bar .switch{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);}
+  .view-bar .switch b{font-weight:400;}
+  .vs-viewport{height:calc(100vh - 330px);min-height:380px;overflow-y:auto;overflow-x:hidden;position:relative;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg2);}
+  .vs-spacer{position:relative;width:100%;}
+  .vs-content{position:absolute;top:0;left:0;right:0;}
+  .vs-cards{display:grid;gap:12px;padding:12px;}
+  .vs-cards.compact{gap:8px;padding:8px;}
+  /* 卡片：两栏布局（左封面 / 右文本信息，v2.1.6）
+     尺寸全部取整确定 → 网格行高确定，虚拟滚动才能算准（JS 的 CARD / CARD_C 必须同步改） */
+  /* 卡宽 / 卡高 / 封面宽全部由 JS 下发（--card-w / --card-h / --cv-w）：
+     一行 3 张铺满 + 封面随卡宽等比缩放（2:3 恒定），高度 = 封面高。 */
+  .vs-card{position:relative;width:var(--card-w,340px);height:var(--card-h,150px);}
+  .compact .vs-card{width:var(--card-w,272px);height:var(--card-h,108px);}
+  /* 收件箱来料条目（v2.1.6：原复用 .watch-item，随未看片单一起删了，改独立命名） */
+  .inb-item{display:flex;align-items:center;gap:10px;background:rgba(13,21,32,.55);border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:13.5px;}
+  .inb-item+.inb-item{margin-top:6px;}
+  .inb-code{font-weight:700;color:#7dd3fc;white-space:nowrap;}
+  .inb-title{flex:1;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;transition:.15s;display:flex;}
+  .card:hover{border-color:#3b82f6aa;transform:translateY(-2px);}
+  .card.sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue);}
+  /* 左栏封面：点它进大图预览（封面 + 截图，灯箱内连续翻页） */
+  .card .cv{flex:0 0 var(--cv-w,100px);width:var(--cv-w,100px);height:100%;position:relative;background:var(--bg);overflow:hidden;cursor:zoom-in;}
+  .compact .card .cv{flex:0 0 var(--cv-w,72px);width:var(--cv-w,72px);}
+  .card .cv img{width:100%;height:100%;object-fit:cover;display:block;}
+  .card .cv .nocover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;}
+  /* 右栏文本信息 */
+  .card .meta{flex:1 1 auto;min-width:0;padding:8px 10px;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+  .card .r1{display:flex;align-items:center;gap:6px;min-width:0;padding-right:26px;}
+  .card .code{font-size:12.5px;font-weight:700;color:#7dd3fc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .badges{display:flex;gap:4px;margin-left:auto;flex:0 0 auto;}
+  .card .badge{font-size:10.5px;padding:1px 7px;border-radius:999px;}
+  .badge.st-想看{background:rgba(245,158,11,.85);color:#1a1205;}
+  .badge.st-已看{background:rgba(16,185,129,.85);color:#04261b;}
+  .badge.st-未看{background:rgba(100,116,139,.8);color:#fff;}
+  .badge.dl{background:rgba(59,130,246,.85);color:#fff;}
+  .card .ttl{font-size:12px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .card .r3,.card .r5,.card .r6{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .r4{display:flex;gap:4px;overflow:hidden;}
+  .card .ctag{font-size:10.5px;line-height:16px;padding:0 6px;border-radius:4px;background:rgba(59,130,246,.14);color:#93c5fd;white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis;}
+  .card .ck{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:6px;border:1px solid #ffffff88;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;z-index:2;}
+  .card.sel .ck{background:var(--blue);border-color:var(--blue);}
+  /* 紧凑模式：右栏只留番号 / 标题 / 演员 */
+  .compact .card .meta{padding:6px 8px;}
+  .compact .card .r4,.compact .card .r5,.compact .card .r6{display:none;}
+  .compact .card .ttl{-webkit-line-clamp:1;}
+
+  /* 表格视图 */
+  .vs-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .vs-table th{position:sticky;top:0;background:var(--card2);color:var(--muted);font-weight:600;text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:2;}
+  .vs-table td{padding:6px 9px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
+  .vs-table tr{cursor:pointer;}
+  .vs-table tr:hover td{background:rgba(59,130,246,.07);}
+  .vs-table tr.sel td{background:rgba(59,130,246,.13);}
+  .vs-table .c-code{color:#7dd3fc;font-weight:700;}
+  .vs-table .c-tags{color:var(--muted);}
+  .vs-table .num{text-align:right;}
+
+  .empty-tip{text-align:center;color:var(--muted);padding:50px 0;font-size:14px;}
+
+  /* ---------- 批量条 ---------- */
+  .bulk-bar{display:none;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--blue);border-radius:var(--radius);padding:9px 12px;font-size:12.5px;}
+  .bulk-bar.show{display:flex;}
+  .bulk-bar .n{color:#7dd3fc;font-weight:700;}
+
+  /* ---------- 弹窗 ---------- */
+  .modal-mask{position:fixed;inset:0;background:rgba(4,10,18,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .modal-mask.show{display:flex;}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;width:min(860px,96vw);max-height:92vh;overflow:auto;padding:20px 22px;}
+  .modal.wide{width:min(1080px,96vw);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .modal-head h3{font-size:16.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .modal-head .x{color:var(--muted);font-size:20px;padding:2px 9px;border-radius:8px;}
+  .modal-head .x:hover{color:var(--txt);background:var(--card2);}
+  .modal-btns{display:flex;justify-content:flex-end;gap:9px;margin-top:16px;}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px 14px;}
+  .form-grid .full{grid-column:1/-1;}
+  .act-field{display:flex;flex-direction:column;gap:5px;}
+  .act-field label{font-size:12px;color:var(--muted);}
+  .act-field textarea{resize:vertical;min-height:64px;}
+  .drop-zone{border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer;transition:.15s;}
+  .drop-zone:hover,.drop-zone.over{border-color:var(--blue);color:var(--txt);background:rgba(59,130,246,.06);}
+  .prev-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .prev-row .pv{position:relative;width:74px;}
+  .prev-row .pv img{width:74px;height:98px;object-fit:cover;border-radius:7px;border:1px solid var(--line);}
+  .prev-row .pv .rm{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  .form-err{color:#fca5a5;font-size:12.5px;margin-top:8px;min-height:1.2em;}
+
+  /* 详情 */
+  /* v2.1.18：封面列取消固定栏宽（原 grid 230px 写死）——改 flex 内容驱动：
+     封面列宽跟随图片自身宽度（min-width:170px 保底 / max-width:260px 封顶），
+     字段列 .detail-side（flex:1 1 0）填满剩余宽度。
+     踩坑备忘：CSS Grid 的 minmax()/fit-content() 都会被 Maximize Tracks 拉到
+     growth limit，容器有剩余空间时退化成固定栏宽——内容驱动必须用 flex。 */
+  .detail-grid{display:flex;gap:18px;}
+  .detail-cover{flex:0 1 auto;min-width:170px;max-width:260px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--bg);}
+  .detail-side{flex:1 1 0;min-width:0;}
+  /* v2.1.15：完整显示 + 比例不变（object-fit:contain + max-height 防超高竖图撑爆弹窗），可点击进灯箱 */
+  .detail-cover img{width:100%;height:auto;max-height:70vh;object-fit:contain;display:block;cursor:zoom-in;}
+  .detail-kv{display:grid;grid-template-columns:88px 1fr;gap:5px 12px;font-size:13.5px;}
+  .detail-kv .k{color:var(--muted);}
+  .detail-kv .v{word-break:break-all;}
+  /* v2.1.23：字段值尾部复制按钮（低调灰隐，悬停显形） */
+  .kv-copy{margin-left:8px;font-family:inherit;font-size:11px;line-height:1;padding:2px 7px;border:1px solid var(--line);background:var(--bg2);color:var(--muted);border-radius:6px;cursor:pointer;opacity:.5;transition:.15s;vertical-align:baseline;}
+  .kv-copy:hover{opacity:1;color:var(--txt);border-color:var(--muted);}
+  .detail-shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .detail-shots img{width:104px;height:69px;object-fit:cover;border-radius:7px;border:1px solid var(--line);cursor:zoom-in;}
+  .detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .magnet-list{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+  .magnet-item{display:flex;gap:8px;align-items:center;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;}
+  .magnet-item .lk{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-family:ui-monospace,Consolas,monospace;}
+  .tag-pill{display:inline-block;background:var(--card2);border-radius:999px;padding:1px 10px;font-size:12px;margin:0 5px 5px 0;}
+
+  /* 灯箱 */
+  #imgViewer{position:fixed;inset:0;background:rgba(2,6,12,.92);display:none;align-items:center;justify-content:center;z-index:200;flex-direction:column;gap:12px;}
+  #imgViewer.show{display:flex;}
+  #imgViewer img{max-width:92vw;max-height:82vh;object-fit:contain;border-radius:8px;box-shadow:0 12px 48px rgba(0,0,0,.55);}
+  .iv-bar{display:flex;gap:14px;align-items:center;color:#cbd5e1;font-size:13px;}
+  .iv-bar button{color:#cbd5e1;border:1px solid #ffffff33;border-radius:8px;padding:6px 13px;font-size:13px;}
+  .iv-bar button:hover{background:rgba(255,255,255,.1);}
+  .iv-bar button:disabled{opacity:.35;cursor:default;background:none;}
+  #ivLabel{color:#94a3b8;font-size:12px;min-width:52px;text-align:center;}
+  #ivLoading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#94a3b8;font-size:13px;letter-spacing:1px;}
+  /* v2.1.32：恢复可见的关闭按钮（D1）——右上角半透明圆钮，不抢图片 */
+  #ivClose{position:absolute;top:16px;right:18px;width:34px;height:34px;border-radius:50%;border:1px solid #ffffff33;background:rgba(0,0,0,.35);color:#e2e8f0;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;}
+  #ivClose:hover{background:rgba(255,255,255,.16);}
+  #ivInfo{color:#94a3b8;font-size:12px;}
+  #ivRetry,#ivSkip{border-color:#f59e0b66;color:#fbbf24;}
+  .iv-bar button[hidden]{display:none;}
+  /* v2.1.33 缩放（D2=A）：点图切换「适应 ↔ 1:1」，滚轮 ±20% 微调，放大后可拖动平移。
+     flex 居中 + overflow 会把溢出部分锁死滚不到（左侧被裁），故 zoomed 态改
+     flex-start + 图片 margin:auto——这是唯一能让滚动范围覆盖整张图的组合。 */
+  #imgViewer.has-strip #imgViewerImg{max-height:72vh;}
+  #imgViewer.zoomed{align-items:flex-start;justify-content:flex-start;overflow:auto;cursor:grab;}
+  #imgViewer.zoomed.dragging{cursor:grabbing;}
+  #imgViewer.zoomed #imgViewerImg{max-width:none;max-height:none;margin:auto;}
+  /* v2.1.33 缩略图条（D3=A）：原图 + IntersectionObserver 懒加载，零后端改动。
+     绝对定位贴底，避免挤压图片区（图片区在 has-strip 时收到 72vh）。 */
+  #ivStrip{position:absolute;left:0;right:0;bottom:0;padding:10px 14px;display:none;gap:8px;overflow-x:auto;overflow-y:hidden;background:linear-gradient(transparent,rgba(2,6,12,.9));z-index:3;}
+  #ivStrip.on{display:flex;}
+  .iv-thumb{flex:none;width:54px;height:72px;border-radius:5px;overflow:hidden;border:2px solid transparent;background:rgba(255,255,255,.07);cursor:pointer;}
+  .iv-thumb.on{border-color:#38bdf8;}
+  .iv-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  @media (max-height:560px){#ivStrip{display:none !important;}}
+
+  /* toast */
+  #toast{position:fixed;left:50%;top:20px;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;}
+  .toast-item{background:#1e293b;color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;max-width:86vw;box-shadow:0 8px 26px rgba(0,0,0,.4);border:1px solid #334155;}
+  .toast-item.ok{background:#064e3b;border-color:#10b98166;}
+  .toast-item.err{background:#5b1a1a;border-color:#ef444466;}
+  .toast-item.warn{background:#42320a;border-color:#f59e0b66;}
+
+  /* 迁移中占位 */
+  .phase-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 30px;text-align:center;color:var(--muted);line-height:2;}
+  .phase-card b{color:#7dd3fc;}
+
+  /* ---------- Video / Actor / Tag 三页（Phase 1b） ---------- */
+  .p-layout{display:flex;gap:16px;align-items:flex-start;}
+  .p-side{flex:0 0 280px;width:280px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;}
+  .p-main{flex:1;min-width:0;}
+  @media (max-width: 980px){ .p-layout{flex-direction:column;} .p-side{flex:1 1 auto;width:100%;position:static;max-height:none;} }
+  .p-list{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:52vh;overflow:auto;}
+  .p-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);cursor:pointer;font-size:13px;}
+  .p-item:hover{border-color:var(--muted);}
+  .p-item.on{border-color:var(--blue);background:rgba(59,130,246,.12);}
+  .p-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .p-item .cnt{color:var(--muted);font-size:12px;flex:none;}
+  .gdot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;}
+  .gdot.f{background:#f472b6;} .gdot.m{background:#60a5fa;} .gdot.u{background:#94a3b8;}
+  .p-empty{color:var(--muted);font-size:12.5px;padding:14px 10px;}
+
+  /* Video 播放 */
+  .v-player{border:1px solid var(--line);border-radius:10px;background:#000;overflow:hidden;margin-top:8px;}
+  .v-player video{width:100%;max-height:56vh;display:none;}
+  .v-player.on video{display:block;}
+  .v-ph{padding:26px 18px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.9;}
+  .v-player.on .v-ph{display:none;}
+  .v-now{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px;font-size:13px;}
+  .v-now .code{font-weight:700;color:#7dd3fc;}
+  .v-now .t{color:var(--muted);max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .v-now .fn{color:var(--muted);font-size:12px;}
+  .v-now .sp{flex:1;}
+  .v-item-list{display:flex;flex-direction:column;gap:5px;margin-top:10px;max-height:44vh;overflow:auto;}
+  .v-item{display:flex;align-items:center;gap:10px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);cursor:pointer;font-size:12.5px;}
+  .v-item.on{border-color:var(--blue);background:rgba(59,130,246,.12);}
+  .v-item .v-thumb{width:44px;height:30px;border-radius:5px;overflow:hidden;background:var(--bg);flex:none;}
+  .v-item .v-thumb img{width:100%;height:100%;object-fit:cover;}
+  .v-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .v-item .sub{color:var(--muted);font-size:11.5px;flex:none;}
+  .v-item .has{color:var(--green);font-size:11.5px;flex:none;}
+
+  /* Actor */
+  .act-av{width:34px;height:34px;border-radius:50%;overflow:hidden;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted);flex:none;}
+  .act-av img{width:100%;height:100%;object-fit:cover;}
+  .ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:10px;}
+  .ov-card{display:flex;gap:11px;padding:10px;border:1px solid var(--line);border-radius:11px;background:var(--bg2);cursor:pointer;}
+  .ov-card:hover{border-color:var(--muted);}
+  .ov-cover{width:52px;height:52px;border-radius:50%;overflow:hidden;background:var(--card2);display:flex;align-items:center;justify-content:center;color:var(--muted);flex:none;}
+  .ov-cover img{width:100%;height:100%;object-fit:cover;}
+  .ov-name{font-weight:600;font-size:13.5px;}
+  .ov-sub{color:var(--muted);font-size:12px;margin-top:1px;}
+  .ov-meta{color:var(--muted);font-size:11.5px;margin-top:3px;display:flex;gap:8px;}
+  .ov-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .ov-stat{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:6px 13px;text-align:center;}
+  .ov-stat .v{display:block;font-weight:700;font-size:15px;color:#7dd3fc;}
+  .ov-stat .l{font-size:11.5px;color:var(--muted);}
+  .act-avatar-row{display:flex;gap:14px;align-items:flex-start;margin:10px 0;}
+  .act-avatar{width:88px;height:88px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;overflow:hidden;flex:none;}
+  .act-avatar img{width:100%;height:100%;object-fit:cover;}
+  .act-avatar-side{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);}
+  .act-form{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;}
+  .act-form .full{grid-column:1/-1;}
+  .act-works{margin-top:12px;}
+  .wk-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .wk{background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:12px;cursor:pointer;}
+  .wk:hover{border-color:var(--blue);}
+  .wk .wt{color:var(--muted);margin-left:5px;}
+  .act-actions{display:flex;gap:8px;margin-top:14px;}
+  .mg-group{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);margin-bottom:8px;font-size:13px;}
+  .mg-name{font-weight:600;}
+  .mg-meta{color:var(--muted);font-size:12px;}
+  .mg-why{color:var(--amber);font-size:12px;}
+  .mg-empty{color:var(--muted);font-size:12.5px;padding:16px 4px;}
+
+  /* Tag 页 */
+  .tag-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;}
+  .tag-toolbar input{flex:1;min-width:140px;}
+  .tg-sec{margin-bottom:16px;}
+  .tg-head{display:flex;align-items:center;gap:9px;font-size:13px;margin-bottom:8px;}
+  .tg-head .tg-bar{width:4px;height:14px;border-radius:2px;background:var(--blue);}
+  .tg-head span{color:var(--muted);font-size:12px;}
+  .tg-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;}
+  .tag-card{border:1px solid var(--line);border-radius:11px;background:var(--bg2);padding:10px 12px;}
+  .tag-card .th{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .tag-card .tname{font-weight:700;font-size:13.5px;}
+  .tag-card .tcnt{color:var(--muted);font-size:11.5px;}
+  .tsws{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0 6px;}
+  .tsw{width:20px;height:20px;border-radius:6px;border:2px solid transparent;cursor:pointer;font-size:0;}
+  .tsw.on{border-color:#fff;}
+  .tsw.auto{width:auto;padding:0 8px;font-size:11px;color:var(--muted);background:var(--card2);border:1px solid var(--line);height:20px;}
+  .tag-card .tgin{font-size:12px;padding:5px 8px;}
+  .tag-card .tact{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap;}
+  .tag-pill{display:inline-block;border:1px solid;border-radius:999px;padding:1px 10px;font-size:12px;margin:0 5px 5px 0;}
+
+  /* 补全资料 / FANZA 面板 */
+  .site-item{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);margin-bottom:7px;font-size:12.5px;}
+  .site-item input.nm{flex:0 0 110px;width:110px;}
+  .site-item input{flex:1;min-width:200px;}
+  .fill-codes{display:flex;gap:8px;margin-bottom:12px;}
+  .fill-codes input{flex:1;}
+  .fanza-grid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+  .fanza-grid > div{width:120px;text-align:center;}
+  .fanza-grid button{width:100%;}
+  .shot-name{font-size:11px;color:var(--muted);margin-top:3px;}
+
+  @media (max-width: 980px){
+    .layout{flex-direction:column;}
+    #topPanel{flex:1 1 auto;width:100%;position:static;max-height:none;}
+    .detail-grid{flex-direction:column;}
+    .detail-cover{width:100%;max-width:none;}
+    .act-form{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- ================= 顶栏 ================= -->
+  <header class="topbar">
+    <div class="brand">
+      <h1>Film Library</h1>
+      <span class="sub" id="appVer">v@@APP_VER@@ · 本地服务版</span>
+    </div>
+    <div class="dirbar-inline" id="dirBar">
+      <span class="dot"></span>
+      <span class="dpath" id="dirPath">未连接数据目录</span>
+      <span id="dirCounts" class="sub"></span>
+      <button class="btn sm" id="btnChangeDir">设置数据目录</button>
+    </div>
+  </header>
+
+  <!-- ================= 四块导航 ================= -->
+  <nav class="mainTabs" id="mainTabs">
+    <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
+    <button class="tab" data-tab="video">Video</button>
+    <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
+    <button class="tab" data-tab="tag">Tag <span class="n" id="tabCountTag">0</span></button>
+  </nav>
+
+  <!-- ================= 主页 ================= -->
+  <section id="pageHome">
+    <div class="layout">
+      <aside id="topPanel">
+        <!-- 视图切换（v2.1.10：原 div.view-bar 的内容整体迁入左栏） -->
+        <div class="side-block">
+          <div class="side-label">视图</div>
+          <div class="view-bar">
+            <div class="seg">
+              <button id="viewCardBtn" class="on">卡片</button>
+              <button id="viewTableBtn">表格</button>
+            </div>
+            <label class="switch"><input type="checkbox" id="compactToggle" style="width:auto"> <b>紧凑</b></label>
+          </div>
+          <label class="switch" style="margin-top:6px" title="FL Spider 抓取写入收件箱后自动导入主库，无需手动点「全部导入并归档」（v2.1.30）"><input type="checkbox" id="autoInboxToggle" style="width:auto"> <b>自动导入收件箱</b></label>
+        </div>
+        <!-- 库概况：默认折叠（details 不带 open 即折叠，点标题展开） -->
+        <details class="side-block" id="statBlock">
+          <summary class="side-label">库概况</summary>
+          <div class="stat-line"><span>总条目</span><b id="statFilms">0</b></div>
+          <div class="stat-bars" id="statStatus"></div>
+        </details>
+        <div class="side-block">
+          <div class="side-label">状态</div>
+          <div class="chip-row" id="statusChips">
+            <button class="chip on" data-status="">全部</button>
+            <button class="chip" data-status="未看">未看</button>
+            <button class="chip" data-status="想看">想看</button>
+            <button class="chip" data-status="已看">已看</button>
+          </div>
+        </div>
+        <div class="side-block"><div class="side-label">演员</div><select id="actorFilter"><option value="">全部演员</option></select></div>
+        <div class="side-block"><div class="side-label">标签</div><select id="tagFilter"><option value="">全部标签</option></select></div>
+        <div class="side-block">
+          <div class="side-label">待补全</div>
+          <select id="missFilter">
+            <option value="">不限</option>
+            <option value="pending">待补全资料</option>
+            <option value="cover">缺封面</option>
+            <option value="magnet">缺磁力</option>
+          </select>
+        </div>
+        <div class="side-block"><div class="side-label">排序</div>
+          <select id="sortSelect">
+            <option value="recent" selected>录入时间 ↓</option>
+            <option value="recent_asc">录入时间 ↑</option>
+            <option value="code_asc">编号 ↑</option>
+            <option value="code_desc">编号 ↓</option>
+            <option value="updated">更新时间 ↓</option>
+            <option value="updated_asc">更新时间 ↑</option>
+          </select>
+        </div>
+        <div class="side-block">
+          <div class="side-label">筛选预设</div>
+          <div class="preset-row">
+            <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
+            <button class="btn sm" id="presetSaveBtn">保存</button>
+          </div>
+          <div class="preset-list" id="presetList"></div>
+        </div>
+        <div class="side-block">
+          <div class="side-label">工具</div>
+          <div class="tool-grid">
+            <button class="btn sm primary" id="addBtn">＋ 新增</button>
+            <button class="btn sm" id="inboxBtn">📥 收件箱</button>
+            <button class="btn sm" id="statsBtn">📊 统计图</button>
+            <button class="btn sm" id="fanzaBtn">📋 待抓清单</button>
+            <button class="btn sm" id="fillBtn">🧩 补全资料</button>
+            <button class="btn sm" id="exportJsonBtn">导出 JSON</button>
+            <button class="btn sm" id="exportCsvBtn">导出 CSV</button>
+            <button class="btn sm" id="exportXlsxBtn">导出 XLSX</button>
+            <button class="btn sm" id="exportZipBtn">导出图片包</button>
+            <button class="btn sm" id="importBtn">导入…</button>
+            <button class="btn sm" id="backupBtn">备份</button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="content">
+        <div class="search-row">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="searchInput" placeholder="搜索：番号 / 标题 / 演员 / 标签 / 备注 / 系列 / 导演 / 发行商 / 来源 / 影片日期，支持 字段:值 -排除 "短语" a|b" autocomplete="off">
+          </div>
+          <select id="searchScope" class="search-scope" title="搜索范围">
+            <option value="all">全部字段</option>
+            <option value="code">仅番号</option>
+            <option value="title">仅原名</option>
+            <option value="titleCn">仅中文名</option>
+            <option value="actor">仅演员</option>
+            <option value="tags">仅标签</option>
+            <option value="note">仅备注</option>
+            <option value="series">仅系列</option>
+            <option value="director">仅导演</option>
+            <option value="maker">仅发行商</option>
+            <option value="platform">仅来源</option>
+            <option value="release">仅影片日期</option>
+          </select>
+          <button class="regex-toggle" id="regexToggle" title="正则模式">正则</button>
+          <button class="q-help-btn" id="qHelpBtn" title="搜索语法帮助">?</button>
+          <button class="btn sm" id="searchClear">清空</button>
+          <div class="regex-hint" id="regexHint">正则模式：整个输入作为正则匹配（非法正则视为无结果）</div>
+          <div class="q-help" id="qHelp"></div>
+        </div>
+
+        <div class="vs-viewport" id="vsViewport">
+          <div class="vs-spacer" id="vsSpacer">
+            <div class="vs-content" id="vsContent"></div>
+          </div>
+        </div>
+        <div class="empty-tip" id="emptyTip" hidden>没有符合条件的影片</div>
+
+        <div class="bulk-bar" id="bulkBar">
+          <span>已选 <span class="n" id="selCount">0</span> 部</span>
+          <button class="btn sm" id="selAll">全选</button>
+          <button class="btn sm" id="selNone">取消全选</button>
+          <button class="btn sm" id="selWish">标为想看</button>
+          <button class="btn sm" id="selUnwatched">标为未看</button>
+          <button class="btn sm" id="selWatched">标为已看</button>
+          <button class="btn sm" id="selTag">加标签…</button>
+          <button class="btn sm" id="selExport">导出所选</button>
+          <button class="btn sm danger" id="selDelete">删除所选</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Video 页 ================= -->
+  <section id="pageVideo" hidden>
+    <div class="p-layout">
+      <aside class="p-side">
+        <div class="side-block">
+          <div class="side-label">播放列表 · <span id="videoGroupCount">0</span> 组</div>
+          <div class="chip-row" id="videoDims">
+            <button class="chip on" data-dim="status">状态</button>
+            <button class="chip" data-dim="tag">标签</button>
+            <button class="chip" data-dim="actor">演员</button>
+            <button class="chip" data-dim="year">年份</button>
+          </div>
+          <div class="p-list" id="videoGroupList"></div>
+        </div>
+      </aside>
+      <div class="p-main">
+        <div class="side-block">
+          <div class="side-label"><span id="videoGroupName">播放列表</span> · <span id="videoItemCount">0</span> 部</div>
+          <div class="v-player" id="videoPlayerBox">
+            <video id="videoEl" controls playsinline preload="metadata"></video>
+            <div class="v-ph">视频文件放在「视频目录」里即可自动出现在这里（文件名需含番号，如 HMN-052.mp4）。<br>
+            选中影片后自动按番号关联播放；播放走本地服务（HTTP Range），不经过浏览器文件选择。</div>
+          </div>
+          <div class="v-now" id="videoNow"></div>
+          <div class="v-item-list" id="videoItemList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Actor 页 ================= -->
+  <section id="pageActor" hidden>
+    <div class="p-layout">
+      <aside class="p-side">
+        <div class="side-block">
+          <div class="side-label">演员 · <span id="actorCount">0</span></div>
+          <div class="tool-grid" style="margin-top:8px">
+            <button class="btn sm" id="actorMergeBtn" title="查找并合并可能是同一人的重复演员">合并去重</button>
+            <button class="btn sm" id="actorImportBtn" title="把影片里出现过、还没建档的演员批量建成资料卡">从影片导入</button>
+            <button class="btn sm primary" id="actorAddBtn">新增演员</button>
+          </div>
+          <input id="actorSearch" placeholder="搜索 日文名 / 中文名 / 英文名 / 曾用名" autocomplete="off" style="margin-top:8px">
+          <div class="p-list" id="actorList"></div>
+        </div>
+      </aside>
+      <div class="p-main">
+        <div class="side-block" id="actorOverview">
+          <div class="side-label">演员总览 · <span id="actorOvCount">0</span></div>
+          <div id="actorOvBody"></div>
+        </div>
+        <div class="side-block" id="actorProfile" hidden>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="side-label" id="actorFormTitle" style="margin:0">演员资料</div>
+            <button class="btn sm" id="actorBackBtn">← 返回总览</button>
+          </div>
+          <div class="act-avatar-row">
+            <div class="act-avatar" id="actorAvatar"><span>无头像</span></div>
+            <div class="act-avatar-side">
+              <input type="file" id="actorAvatarInput" accept="image/*" hidden>
+              <button class="btn sm" id="actorAvatarBtn">上传头像</button>
+              <button class="btn sm" id="actorAvatarClear">清除头像</button>
+              <div>建议正方形图片，服务端存档 actors/ 目录</div>
+            </div>
+          </div>
+          <div class="act-form">
+            <div class="act-field"><label>日文名</label><input id="actorJa" autocomplete="off"></div>
+            <div class="act-field"><label>中文名</label><input id="actorZh" autocomplete="off"></div>
+            <div class="act-field"><label>英文名</label><input id="actorEn" autocomplete="off"></div>
+            <div class="act-field"><label>性别</label><select id="actorGender">
+              <option value="f">女演员</option><option value="m">男演员</option><option value="u">未知</option>
+            </select></div>
+            <div class="act-field full"><label>曾用名 / 别名（多个用逗号分隔；也会算进参演影片与搜索）</label><input id="actorAlias" placeholder="如 旧艺名A, 旧艺名B" autocomplete="off"></div>
+            <div class="act-field full"><label>备注</label><textarea id="actorNote" rows="2" style="resize:vertical"></textarea></div>
+          </div>
+          <div class="act-works" id="actorWorks"></div>
+          <div class="act-actions">
+            <button class="btn sm danger" id="actorDelBtn">删除</button>
+            <span style="flex:1"></span>
+            <button class="btn sm" id="actorCancelBtn">取消</button>
+            <button class="btn sm primary" id="actorSaveBtn">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Tag 页 ================= -->
+  <section id="pageTag" hidden>
+    <div class="side-block">
+      <div class="side-label">标签 · <span id="tagCount">0</span></div>
+      <div class="tag-toolbar">
+        <input id="tagSearch" placeholder="搜索标签" autocomplete="off">
+        <input id="tagNewName" placeholder="新标签名" autocomplete="off">
+        <button class="btn sm primary" id="tagAddBtn">新增标签</button>
+      </div>
+      <div id="tagList"></div>
+      <datalist id="tagGroupList"></datalist>
+      <div style="font-size:12px;color:var(--muted);line-height:1.9">点色块改标签颜色（默认按标签名自动配色）；填「分组」可把标签归类，Tag 页按分组分区展示。
+      改名 / 删除会同步修改所有影片的标签（保存后写回数据文件）；「合并」把 A 并入 B（A 会被删除）。标签元数据保存在数据目录 meta.json。</div>
+    </div>
+  </section>
+</div>
+
+<!-- ================= 首次配置数据目录 ================= -->
+<div class="modal-mask" id="setupMask">
+  <div class="modal">
+    <div class="modal-head"><h3>设置数据目录</h3></div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+      把存放 <b>Film Library.json</b> 和 covers / shots 图片的文件夹路径粘贴到下面。<br>
+      旧版数据零转换直接读；服务端只会写你主动保存的内容，<b>不会改动其它任何文件</b>。
+    </p>
+    <div class="act-field"><label>数据目录（包含 Film Library.json 的文件夹）</label>
+      <input id="setupPath" placeholder="例如 D:\影片库\FilmLibraryData"></div>
+    <div class="act-field" style="margin-top:10px"><label>视频目录（可选，Video 页用；留空则与数据目录相同）</label>
+      <input id="setupVideoPath" placeholder="例如 D:\影片库\Videos"></div>
+    <div class="form-err" id="setupMsg"></div>
+    <div class="modal-btns">
+      <button class="btn" id="setupClose">取消</button>
+      <button class="btn primary" id="setupSaveBtn">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 影片表单 ================= -->
+<div class="modal-mask" id="formMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3 id="formTitle">新增影片</h3><button class="x" id="formClose">✕</button></div>
+    <form id="filmForm" autocomplete="off">
+      <div class="form-grid">
+        <div class="act-field"><label>番号 *</label><input name="f_code" required placeholder="如 DSOD-009"></div>
+        <div class="act-field"><label>状态</label><select name="f_status">
+          <option>未看</option><option>想看</option><option>已看</option>
+        </select></div>
+        <div class="act-field"><label>原名</label><input name="f_title" placeholder="日文原名"></div>
+        <div class="act-field"><label>中文名</label><input name="f_titleCn" placeholder="中文译名"></div>
+        <div class="act-field"><label>演员</label><input name="f_actor" placeholder="主演"></div>
+        <div class="act-field"><label>演员（女）</label><input name="f_actorF"></div>
+        <div class="act-field"><label>演员（男）</label><input name="f_actorM"></div>
+        <div class="act-field"><label>系列</label><input name="f_series"></div>
+        <div class="act-field"><label>导演</label><input name="f_director"></div>
+        <div class="act-field"><label>平台 / 来源</label><input name="f_platform" placeholder="如 FANZA / MGS / MISSAV"></div>
+        <div class="act-field"><label>影片日期</label><input name="f_release" placeholder="如 2024/05/07"></div>
+        <div class="act-field"><label>发行商</label><input name="f_maker" placeholder="如 S1 / SOD"></div>
+        <div class="act-field full"><label>标签（逗号分隔）</label><input name="f_tags" placeholder="单人, 数字"></div>
+        <div class="act-field full"><label>磁力链接 1</label><input name="f_magnet0" placeholder="magnet:?xt=urn:btih:..."></div>
+        <div class="act-field full"><label>磁力链接 2（可选）</label><input name="f_magnet1"></div>
+        <div class="act-field full"><label>磁力链接 3（可选）</label><input name="f_magnet2"></div>
+        <div class="act-field full"><label>备注</label><textarea name="f_note"></textarea></div>
+        <div class="act-field full">
+          <label>封面</label>
+          <div class="drop-zone" id="coverDrop">点击选择或拖入图片（jpg/png/webp）</div>
+          <div class="prev-row" id="coverPreview"></div>
+        </div>
+        <div class="act-field full">
+          <label>截图（可多张）</label>
+          <div class="drop-zone" id="shotsDrop">点击选择或拖入图片</div>
+          <div class="prev-row" id="shotsPreview"></div>
+        </div>
+        <div class="act-field full" style="flex-direction:row;gap:18px">
+          <label style="display:flex;align-items:center;gap:7px"><input type="checkbox" name="f_downloaded" style="width:auto"> 已下载</label>
+          <label style="display:flex;align-items:center;gap:7px"><input type="checkbox" name="f_saved" style="width:auto"> 已收藏</label>
+        </div>
+      </div>
+      <div class="form-err" id="formErr"></div>
+      <div class="modal-btns">
+        <button type="button" class="btn" id="formCancel">取消</button>
+        <button type="submit" class="btn primary" id="formSubmit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ================= 详情 ================= -->
+<div class="modal-mask" id="detailMask">
+  <div class="modal wide">
+    <div id="detailBody"></div>
+  </div>
+</div>
+
+<!-- ================= 快速备注 ================= -->
+<div class="modal-mask" id="noteMask">
+  <div class="modal">
+    <!-- v2.1.20：✕ 按钮已删——它从来就没有监听器（HTML 在、JS 无，死按钮）。
+         关闭 = 点遮罩（与详情弹窗/灯箱统一，见 bindDetail 里的 #noteMask 监听）。
+         硬教训：删 HTML 按钮必须同步确认无 JS 引用，否则 addEventListener 吃到
+         null 会抛异常、拖垮同函数后续所有监听。 -->
+    <div class="modal-head"><h3 id="noteTitle">备注</h3></div>
+    <textarea id="noteText" rows="6" placeholder="写点什么…"></textarea>
+    <div class="modal-btns">
+      <button class="btn" id="noteCancel">取消</button>
+      <button class="btn primary" id="noteSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 收件箱 ================= -->
+<div class="modal-mask" id="inboxMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3>收件箱（FL Spider 抓取的来料）</h3><button class="x" id="inboxClose">✕</button></div>
+    <div id="inboxList" style="font-size:13px"></div>
+    <div class="modal-btns">
+      <button class="btn" id="inboxCloseBtn">关闭</button>
+      <button class="btn primary" id="inboxImportBtn">全部导入并归档</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 统计图 ================= -->
+<div class="modal-mask" id="statsMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3>统计</h3><button class="x" id="statsClose">✕</button></div>
+    <div id="statsBody"></div>
+    <div class="modal-btns"><button class="btn" id="statsCloseBtn">关闭</button></div>
+  </div>
+</div>
+
+<!-- ================= 演员合并去重 ================= -->
+<div class="modal-mask" id="actorMergeMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3>演员合并去重</h3><button class="x" id="actorMergeClose">✕</button></div>
+    <div id="actorMergeList"></div>
+    <div class="mg-group" style="margin-top:10px">
+      <span class="mg-name">手动合并</span>
+      <select id="mgKeepSel" style="flex:1;min-width:140px"></select>
+      <span class="mg-meta">⟵ 保留</span>
+      <select id="mgDropSel" style="flex:1;min-width:140px"></select>
+      <span class="mg-meta">⟵ 并入</span>
+      <button class="btn sm primary" id="mgDoBtn">合并</button>
+    </div>
+    <div class="modal-btns"><button class="btn" id="actorMergeCloseBtn">关闭</button></div>
+  </div>
+</div>
+
+<!-- ================= 待抓清单（v2.1.24 起多站点） ================= -->
+<div class="modal-mask" id="fanzaMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3>待抓清单</h3><button class="x" id="fanzaClose">✕</button></div>
+    <p style="font-size:12.5px;color:var(--muted);margin-bottom:10px">
+      资料不完整（缺原名 / 中文名 / 演员 / 封面）的影片会按勾选的来源站规则列在这里。
+      点番号打开该影片命中的站点搜索页，用 FL Spider 抓取；也可导出番号清单交给爬虫「批量」排队。
+    </p>
+    <div class="side-label">来源站（勾选后即时筛选；JAVDB / MISSAV 为聚合站，收录各类番号）</div>
+    <div id="pendingSites" style="display:flex;flex-wrap:wrap;gap:10px 18px;margin-bottom:12px;"></div>
+    <div id="fanzaList"></div>
+    <div class="modal-btns">
+      <button class="btn" id="fanzaCloseBtn">关闭</button>
+      <button class="btn" id="fanzaBatchBtn">批量打开前 5 个</button>
+      <button class="btn" id="fanzaExportBtn">导出番号清单</button>
+      <button class="btn primary" id="fanzaCopyBtn">复制全部番号</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 补全资料 ================= -->
+<div class="modal-mask" id="fillMask">
+  <div class="modal wide">
+    <div class="modal-head"><h3>补全资料</h3><button class="x" id="fillClose">✕</button></div>
+    <div class="fill-codes">
+      <input id="fillCode" placeholder="番号（多个用逗号分隔）" autocomplete="off">
+      <button class="btn primary" id="fillOpenBtn">打开搜索页</button>
+    </div>
+    <div class="side-label">资料来源（打开搜索页时按 {code} 替换；勾选「FANZA 写法」会把 ABP-123 转成 ABP00123）</div>
+    <div id="siteList"></div>
+    <div id="inboxStatus" style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.9"></div>
+    <div class="modal-btns">
+      <button class="btn" id="fillCloseBtn">关闭</button>
+      <button class="btn" id="fillReadFailedBtn">回填抓取失败番号</button>
+      <button class="btn" id="fillExportPendingBtn">导出待补全番号</button>
+      <button class="btn primary" id="fillReadInboxBtn">读取收件箱并导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 灯箱 ================= -->
+<div id="imgViewer">
+  <button type="button" id="ivClose" title="关闭（Esc）" aria-label="关闭">✕</button>
+  <div id="ivLoading">加载中…</div>
+  <img id="imgViewerImg" alt="">
+  <div class="iv-bar">
+    <button id="ivPrev">← 上一张</button>
+    <span id="ivLabel"></span>
+    <span id="ivCount"></span>
+    <span id="ivInfo"></span>
+    <button type="button" id="ivRetry" hidden>重试</button>
+    <button type="button" id="ivSkip" hidden>跳过</button>
+    <button id="ivNext">下一张 →</button>
+  </div>
+  <div id="ivStrip"></div>
+</div>
+
+<input type="file" id="importFile" hidden accept=".json,.csv,.xlsx,.xls,.zip" multiple>
+<div id="toast"></div>
+
+<script>
+/* @@APP@@ */
+</script>
+</body>
+</html>
