@@ -35,7 +35,7 @@ const { exec } = require('child_process');
 /* v1.1.8（附录批次 6）：A-15 对拍 Py 流式（见下 pipeFile）/ A-16 createReadStream
    error 监听 / A-17 配置文件 GBK 回退解码 / A-18 错误码与排序双端对齐 + 损坏
    收件箱拒绝导入 / A-19 原子写 fsync / A-20 闲置连接超时。 */
-const VERSION = '1.1.9';
+const VERSION = '1.1.11';
 const PORT_FIRST = 8787;
 const PORT_LAST = 8796;
 const HERE = __dirname;
@@ -75,13 +75,26 @@ const VIDEO_EXT = ['.mp4', '.webm', '.ogg', '.mov', '.mkv', '.avi', '.flv', '.ts
    常见形态）。旧版两种坏面貌：Python 严格 utf8 失败 → 全端 409；Node 按 utf8
    静默替换字符 → 中文路径变乱码还照样报 configured。现在：utf8 严格校验
    （TextDecoder fatal）失败即回退 GBK 解码；GBK 也不可用时退回原行为。 */
+/* v1.1.10 #2：单文件读入上限（64MB）。V8 单字符串上限约 512MB（实测
+   MAX_STRING_LENGTH = 536870888）；收件箱归档长期累积可达数百 MB（实测 866MB），
+   readFileSync + toString 直接抛 RangeError → /api/status 与收件箱接口全线 500。
+   超过门限按「读不到」返回 null，由调用方降级（见 /api/status 的 oversize 标记），
+   绝不因为一个归档文件拖垮整个服务。 */
+const MAX_TEXT_BYTES = 64 * 1024 * 1024;
+function fileTooLarge(p) {
+  try { const st = fs.statSync(p); return !!st && st.isFile() && st.size > MAX_TEXT_BYTES; }
+  catch (e) { return false; }
+}
 function readText(p) {
   let buf;
-  try { buf = fs.readFileSync(p); } catch (e) { return null; }
+  try {
+    if (fileTooLarge(p)) return null;
+    buf = fs.readFileSync(p);
+  } catch (e) { return null; }
   try { new TextDecoder('utf-8', { fatal: true }).decode(buf); return buf.toString('utf8'); }
-  catch (e) { /* 非 utf8 字节，走 GBK 回退 */ }
+  catch (e) { /* 非 utf8 字节，走 GBK 回退；也可能是超上限，下面逐级兜底 */ }
   try { return new TextDecoder('gbk').decode(buf); }
-  catch (e2) { return buf.toString('utf8'); }
+  catch (e2) { try { return buf.toString('utf8'); } catch (e3) { return null; } }
 }
 /* 去掉 Notepad 可能存进的 BOM / 首尾空白 / 包裹的引号 */
 function cleanPathText(s) {
@@ -124,8 +137,20 @@ function safeJoin(base, rel) {
   if (!base) return null;
   const r = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '');
   if (!r || r.split('/').some(seg => seg === '..')) return null;
-  const abs = path.resolve(base, r);
-  const b = path.resolve(base);
+  /* v1.1.10 #3：必须解析符号链接 / junction 之后再判越界。旧版只用 path.resolve
+     做「字符串前缀」比较：数据目录里若有指向外部的 junction（为省空间把 covers
+     链接到别的盘是很常见的做法），就能读到目录外的文件；而 Python 备端用的是
+     realpath，同一个请求两端给出不同结果（Node 200 / Python 403）。
+     现在两端统一：realpath 后判前缀；realpath 失败（不存在/无权限）退回字符串
+     比较，让上层按 404 处理，不把「读不到」误判成「禁止访问」。 */
+  let abs, b;
+  try {
+    abs = fs.realpathSync(path.resolve(base, r));
+    b = fs.realpathSync(path.resolve(base));
+  } catch (e) {
+    abs = path.resolve(base, r);
+    b = path.resolve(base);
+  }
   if (abs !== b && !abs.startsWith(b + path.sep)) return null;
   return abs;
 }
@@ -172,7 +197,10 @@ function padKey(code) {
   return str;
 }
 function digitLen(code) {
-  const m = /(\d+)\s*$/.exec(String(code == null ? '' : code));
+  /* v1.1.11 #24：先 trim 再匹配。Python 端加了 re.ASCII 使 \s 只认 ASCII 空白，
+     而 JS 的 \s 是 Unicode 语义（含 \u00A0、\uFEFF）——番号尾部带全角/不换行空格时
+     两端 digitLen 不同 → dedupe 归并保留的条目不同 → 收件箱随主备端切换漂移。 */
+  const m = /(\d+)\s*$/.exec(String(code == null ? '' : code).trim());
   return m ? m[1].length : 0;
 }
 /* ============================================================================
@@ -204,7 +232,10 @@ function scoreItem(it) {
   /* v1.1.3：对齐 FL Spider v1.3.40 十字段字段体系——旧表里的 tags/releaseSale/
      releaseStream 已废，换成 maker/release/platform 口径 */
   ['title', 'titleCn', 'actorF', 'actorM', 'actor', 'maker', 'release', 'magnet']
-    .forEach(k => { if (String(it[k] == null ? '' : it[k]).trim()) n++; });
+    /* v1.1.11 #25：与 Python 端一致——只看「非 null 且去空白非空」。
+       Python 的 or '' 会把 0 / false 当空，Node 的 ==null 不会 → 打分差 1
+       → dedupe 保留的那条不同，双端收件箱内容不一致。 */
+    .forEach(k => { const v = it[k]; if (v != null && String(v).trim()) n++; });
   if (hasImg(it.cover)) n += 2;
   if (Array.isArray(it.shots) && it.shots.length) n += 2;
   /* 来源层级作第一排序键：一级加大档（2000）、二级加小档（1000），
@@ -273,7 +304,10 @@ function readBody(req, limit) {
     let size = 0; const chunks = [];
     req.on('data', c => {
       size += c.length;
-      if (size > limit) { reject(new Error('body too large')); req.destroy(); }
+      /* v1.1.11 #26：不能先 destroy——销毁请求流会连带关掉 socket，413 根本发不到
+         客户端（实测收到 ECONNRESET，浏览器表现为 Failed to fetch）。
+         与 Python 端一致：先排空剩余 body，再由路由回 413。 */
+      if (size > limit) { req.resume(); reject(new Error('body too large')); return; }
       else chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -358,6 +392,10 @@ const server = http.createServer(async (req, res) => {
      unhandled rejection 直接终止 Node 进程，整个服务被打崩（一个坏请求 = 全站停摆）。 */
   try { pathname = decodeURIComponent(url.pathname); }
   catch (e) { sendErr(res, 400, 'bad url encoding'); return; }
+  /* v1.1.11 #28：百分号编码的点段（%2e%2e）在 WHATWG URL 解析阶段就被归一化，
+     导致 Node 落到 404 而 Python 回 403——同一请求两端结果不同。
+     解码后显式拒绝任何 .. 段，与 Python 端对齐。 */
+  if (pathname.split('/').indexOf('..') >= 0) { sendErr(res, 403, 'path denied'); return; }
 
   try {
     /* ---- 静态：应用本体 ---- */
@@ -403,14 +441,20 @@ const server = http.createServer(async (req, res) => {
       const st = { ok: true, server: 'node', version: VERSION, configured: !!dataDir, dataDir: dataDir || '' };
       if (dataDir) {
         const main = path.join(dataDir, MAIN_FILE);
-        const inboxTxt = readText(path.join(dataDir, INBOX_FILE));
-        const doneTxt = readText(path.join(dataDir, INBOX_DONE));
-        st.exists = { main: fs.existsSync(main), mainOld: fs.existsSync(path.join(dataDir, MAIN_FILE_OLD)), inbox: inboxTxt != null };
+        const inboxP = path.join(dataDir, INBOX_FILE);
+        const doneP = path.join(dataDir, INBOX_DONE);
+        const inboxTxt = readText(inboxP);
+        const doneTxt = readText(doneP);
+        /* v1.1.10 #2：超大文件读不动，计数只能是 0——但不标记原因的话，前端只看到
+           「收件箱 0 条」，用户无从判断是真空还是读不动（曾导致误以为数据丢了）。 */
+        const inboxBig = fileTooLarge(inboxP), doneBig = fileTooLarge(doneP);
+        st.exists = { main: fs.existsSync(main), mainOld: fs.existsSync(path.join(dataDir, MAIN_FILE_OLD)), inbox: inboxTxt != null || inboxBig };
         st.counts = {
           films: countFilms(dataDir),
           inbox: (parseInbox(inboxTxt) || []).length,
           archive: (parseInbox(doneTxt) || []).length,
         };
+        if (inboxBig || doneBig) st.oversize = { inbox: inboxBig, archive: doneBig };
       }
       sendJson(res, 200, st);
       return;
@@ -462,7 +506,10 @@ const server = http.createServer(async (req, res) => {
       if (txt == null) { sendJson(res, 200, { ok: true, found: false, tier: 0, code: code }); return; }
       let payload;
       try { payload = JSON.parse(txt.replace(/^\uFEFF/, '')); } catch (e) { sendErr(res, 500, 'main data is not valid JSON'); return; }
-      const rows = (payload && Array.isArray(payload.rows)) ? payload.rows : [];
+      /* v1.1.11 #23：与 Python 端一致——结构异常要 500，不能静默降级成 []。
+         旧版 Node 返回 200 {found:false}，Python 返回 500，同一份坏数据两端表现不同。 */
+      const rows = (payload && Array.isArray(payload.rows)) ? payload.rows : null;
+      if (!rows) { sendErr(res, 500, 'main data shape unexpected'); return; }
       let best = 0, hit = null;
       /* 同番号多行取「最优」来源层级：一级(1) > 二级(2) > 无来源(0)——
          tier 数字越小来源越硬；0 只在不输给任何有来源行时才胜出。 */
@@ -574,6 +621,7 @@ const server = http.createServer(async (req, res) => {
       if (!dataDir) { sendErr(res, 409, 'data dir not configured'); return; }
       const inboxPath = path.join(dataDir, INBOX_FILE);
       if (req.method === 'GET') {
+        if (fileTooLarge(inboxPath)) { sendErr(res, 500, 'inbox file is too large'); return; }
         const cur = parseInbox(readText(inboxPath));
         if (cur === null) { sendErr(res, 500, 'inbox file is corrupted'); return; }
         sendJson(res, 200, { ok: true, exists: fs.existsSync(inboxPath), items: cur });
@@ -585,7 +633,18 @@ const server = http.createServer(async (req, res) => {
         const valid = incoming.filter(it => it && String(it.code || '').trim());
         if (!valid.length) { sendErr(res, 400, 'no item with code'); return; }
         const r = await withWriteLock(() => {
-          const cur = parseInbox(readText(inboxPath)) || [];
+          /* v1.1.10 #1：损坏/超大的收件箱绝不能被「空数组」兜底。旧版
+             `parseInbox(...) || []` 把「解析失败(null)」当「空」，于是 Spider
+             POST 一条新来料就把整箱旧数据覆盖成 [新条目]——整箱丢失且回 200，
+             与同文件 /api/inbox/import 的既有修复自相矛盾。
+             现在：文件存在但读不动/解析不了 → 抛错回 500，一个字节都不写。 */
+          let cur;
+          if (fs.existsSync(inboxPath)) {
+            if (fileTooLarge(inboxPath)) throw new Error('inbox file is too large');
+            const t = readText(inboxPath);
+            cur = parseInbox(t);
+            if (cur === null) throw new Error('inbox file is corrupted');
+          } else { cur = []; }
           const added = [], updated = [], skipped = [];
           valid.forEach(it => {
             const idx = cur.findIndex(x => x && x.code && padKey(x.code) === padKey(it.code));

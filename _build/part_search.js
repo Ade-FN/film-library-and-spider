@@ -50,6 +50,19 @@ function buildMatcher(text, force){
   h.textContent = '正则模式：整个输入作为正则匹配（非法正则视为无结果）';
   if(!$('#regexToggle').classList.contains('on')) h.classList.remove('show');
   if(!text) return null;
+  /* v2.1.37 #21：模式串是用户可控的，必须有护栏。输入 (a+)+$ / ([a-z]+)+$ 这类
+     嵌套量词会引发灾难性回溯，整个标签页卡死且无法恢复（只能杀进程）。
+     先看长度，再拦截典型嵌套量词形态；命中则拒绝编译并给出可读提示。 */
+  if(text.length > 200){
+    h.classList.add('show', 'err');
+    h.textContent = '正则表达式过长（上限 200 字符）';
+    return function(){ return false; };
+  }
+  if(/\([^()]*[+*][^()]*\)[+*]/.test(text)){
+    h.classList.add('show', 'err');
+    h.textContent = '检测到可能引起灾难性回溯的嵌套量词（如 (a+)+），已拒绝执行';
+    return function(){ return false; };
+  }
   try{
     var re = new RegExp(text, 'i');
     return function(s){ return re.test(s); };

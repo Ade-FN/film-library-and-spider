@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         FL Spider
 // @namespace    https://github.com/your-name/fl-crawler
-// @version      1.3.67
+// @version      1.3.69
 // @description  Film Library 爬虫 + 番号互跳（javdb / MissAV / FANZA / MOTV / MGS）。
 //   ① 抓资料：番号/原名/中文名/上市时间/商品発売日/配信開始日/演员/标签/封面/截图 → 写入「Film Library 收件箱.json」
 //   ② 番号识别 + 五站互跳按钮 + 一键复制番号（移植自「番号提取转换DSAI v2.0.0」）
@@ -62,7 +62,7 @@
   'use strict';
 
   /* ---------- 常量 ---------- */
-  const VERSION = '1.3.67';;;;;;;;;;;;           // 与 @version 保持一致；设置面板顶部会显示，便于确认装的是哪一版
+  const VERSION = '1.3.69';;;;;;;;;;;;           // 与 @version 保持一致；设置面板顶部会显示，便于确认装的是哪一版
   const INBOX_FILE = 'Film Library 收件箱.json';
   const ARCHIVE_FILE = 'Film Library 收件箱_已导入.json';
   const PENDING_PREFIX = 'Film Library 待补全番号_';
@@ -2192,6 +2192,48 @@
     } catch (e) { toast('复制失败：' + ((e && e.message) || e), 'err'); }
   }
   const LOCK_KEY = 'fl_inbox_lock';
+  /* v1.3.69 #5：收件箱是「跨源共享的单文件」，而 localStorage 是按「源」隔离的——
+     本脚本 @match 覆盖 javdb / missav / motv / dmmvideo / dmm / mgs 六个不同域，
+     在 A 站与 B 站各开一个标签页并行抓取（正是设计用途：多站互补）时，两边各自的
+     localStorage 互不可见，互斥锁形同虚设 → 后写者基于旧内容整文件覆写，
+     先写者的条目整批丢失。
+     对策是「两层锁」而不是把锁整体搬到 GM：本源锁继续用 localStorage 直写（GM 存储
+     由脚本管理器维护、跨源共享，但读写更重且部分环境不可用），另在 GM 写一份带
+     origin 的锁（见下方 crossOriginLock*），只用来拦「别的站点」。
+     这样同站多标签仍走原来的 CAS + 写后二次确认路径（#22 语义与 v1.3.67 完全一致），
+     只有跨站并行才让出，也不会给本源读写引入新的失败点。 */
+  /* ---- v1.3.69 #5：跨源锁（只拦「别的站点」，不拦同站） ----
+     收件箱是「跨源共享的单文件」，而 localStorage 按「源」隔离。本脚本 @match
+     覆盖 javdb / missav / motv / dmmvideo / dmm / mgs 六个域，在 A 站与 B 站各开
+     一个标签页并行抓取（正是设计用途：多站互补）时，两边的 localStorage 互不可见
+     → 后写者基于旧内容整文件覆写，先写者的条目整批丢失。
+     对策：加锁时额外往 GM 存储（脚本管理器维护、跨源共享）写一份带 origin 的锁；
+     拿到本源锁之后再查一次 GM——只有「origin 不同且未过期」才让出锁。
+     同站（含同标签页刷新/导航）一律交给本源锁，避免把残留锁误判成别人的。 */
+  function crossOriginLocked(now){
+    try {
+      if (typeof GM_getValue !== 'function') return false;   // 无 GM → 优雅退化
+      const v = GM_getValue(LOCK_KEY, null);
+      if (v == null) return false;
+      const o = JSON.parse(v);
+      if (!o || o.id === TAB_ID) return false;               // 自己（同一脚本实例）
+      const cur = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
+      if (o.origin && cur && o.origin === cur) return false; // 同站：交给本源锁处理
+      return (now - (o.t || 0)) <= 60000;                    // 跨站且未过期 → 让出
+    } catch (e) { return false; }
+  }
+  function crossOriginLockSet(now){
+    try {
+      if (typeof GM_setValue !== 'function') return;
+      GM_setValue(LOCK_KEY, JSON.stringify({
+        t: now, id: TAB_ID,
+        origin: (typeof location !== 'undefined' && location.origin) ? location.origin : ''
+      }));
+    } catch (e) {}
+  }
+  function crossOriginLockDel(){
+    try { if (typeof GM_deleteValue === 'function') GM_deleteValue(LOCK_KEY); } catch (e) {}
+  }
   const RECENT_KEY = 'fl_recent_writes';
   /* 零填充归一化键：DSOD-009 与 DSOD-9 视为同一部 */
   function padKey(code) {
@@ -2243,11 +2285,23 @@
   async function acquireInboxLock(maxWait) {
     const t0 = Date.now();
     for (;;) {
+      /* v1.3.69 #5：localStorage 按「源」隔离，而收件箱是跨源共享的单个文件——
+         本脚本 @match 覆盖六个域，在 A 站与 B 站各开一个标签页并行抓取（正是设计
+         用途：多站互补）时，两边的 localStorage 互不可见 → 双方都认为自己持锁 →
+         后写者基于旧内容整文件覆写，先写者的条目整批丢失。GM 存储由脚本管理器维护、
+         跨源共享，用它做第一道闸门：别人（别的源）持锁时先等，不抢。
+         GM 不可用时优雅退化（只保留本源锁的既有行为）。 */
+      if (crossOriginLocked(Date.now())) {
+        if (Date.now() - t0 >= maxWait) return false;
+        await new Promise(r => setTimeout(r, 120));
+        continue;
+      }
       let l = null;
       try { l = JSON.parse(localStorage.getItem(LOCK_KEY) || "null"); } catch (e) { l = null; }
       const now = Date.now();
       if (!l || l.id === TAB_ID || (now - l.t) > 60000) {
         try { localStorage.setItem(LOCK_KEY, JSON.stringify({ t: now, id: TAB_ID })); } catch (e) {}
+        crossOriginLockSet(now);   /* v1.3.69 #5：同时写跨源可见的那一份 */
         /* v1.3.59 #22：localStorage 无 CAS——「读到无锁/过期锁 → 写锁」之间，
            两个标签可同时通过（后者覆盖前者，双方都以为自己持锁 → 基于旧内容
            整文件覆写 → 二丢一）。写后延迟复查一次：锁若已变成别人的，说明踩了
@@ -2255,6 +2309,7 @@
         await new Promise(r => setTimeout(r, 60));
         let l2 = null;
         try { l2 = JSON.parse(localStorage.getItem(LOCK_KEY) || "null"); } catch (e) { l2 = null; }
+        /* v1.3.69 #5：本源锁拿到后即生效——跨源闸门已在抢锁前确认过（见上）。 */
         if (l2 && l2.id === TAB_ID) return true;
         if (Date.now() - t0 >= maxWait) return false;
         await new Promise(r => setTimeout(r, 120));
@@ -2269,19 +2324,22 @@
      数据走各自的保命路径（下载兜底 / 写回 GM 备份），绝不覆盖别人的成果。 */
   function lockStillMine() {
     try {
-      const l = JSON.parse(localStorage.getItem(LOCK_KEY) || "null");
+      let l = null;
+      try { l = JSON.parse(localStorage.getItem(LOCK_KEY) || "null"); } catch (e) { l = null; }
       return !!l && l.id === TAB_ID && (Date.now() - l.t) <= 60000;
     } catch (e) { return false; }
   }
   function releaseInboxLock() {
     try {
-      const l = JSON.parse(localStorage.getItem(LOCK_KEY) || "null");
-      if (l && l.id === TAB_ID) localStorage.removeItem(LOCK_KEY);
+      let l = null;
+      try { l = JSON.parse(localStorage.getItem(LOCK_KEY) || "null"); } catch (e) { l = null; }
+      if (l && l.id === TAB_ID) { localStorage.removeItem(LOCK_KEY); crossOriginLockDel(); }
     } catch (e) {}
   }
   function markRecentWrite(code) {
     try {
-      const rw = JSON.parse(localStorage.getItem(RECENT_KEY) || "{}") || {};
+      let rw = {};
+      try { rw = JSON.parse(localStorage.getItem(RECENT_KEY) || "{}") || {}; } catch (e) { rw = {}; }
       const now = Date.now();
       /* 顺手修剪：只保留 30 秒内的记录（与 recentWriteFromOtherTab 判断窗口一致），
          防 localStorage 无限堆积、全量 JSON 读写越来越慢（v1.3.46 任务119） */
@@ -2295,7 +2353,8 @@
   /* 别的标签页 30 秒内刚写过同番号 → 跳过，避免重复追加 */
   function recentWriteFromOtherTab(code) {
     try {
-      const rw = JSON.parse(localStorage.getItem(RECENT_KEY) || "{}") || {};
+      let rw = {};
+      try { rw = JSON.parse(localStorage.getItem(RECENT_KEY) || "{}") || {}; } catch (e) { rw = {}; }
       const p = rw[padKey(code)];
       return !!(p && p.id !== TAB_ID && (Date.now() - p.t) < 30000);
     } catch (e) { return false; }
@@ -2495,8 +2554,11 @@ async function serverReady(force) {
         } else {
           _inboxBatch.push(item);
           markRecentWrite(code);
-          markDone(code);   /* v1.3.64 #8：只有真写了的才记成功——旧版跳过项也 markDone，
-                              结果面板/报告把「被跳过」虚报成「本次成功」 */
+          /* v1.3.64 #8：只有真写了的才记成功——旧版跳过项也 markDone，
+             结果面板/报告把「被跳过」虚报成「本次成功」。
+             v1.3.69 #15：入批同样不算「写了」——整批 POST 失败时数据只躺在 GM 备份里，
+             却已被报成成功。改为先登记待确认，真落盘后由 flushPendingDone 补记。 */
+          _pendingDoneCodes.push(code);
         }
         setCurrent(null);
         wrote = true;
@@ -2529,6 +2591,7 @@ async function serverReady(force) {
           }
         }
         let lastErr = null;
+        let skippedByTier = false;   /* v1.3.69 #16：二级撞一级 → 按设计跳过 */
         for (let attempt = 0; attempt < 2 && !wrote; attempt++) {
           if (!(await acquireInboxLock(6000))) {
             lastErr = new Error('另一个标签页正在写收件箱，等待超时');
@@ -2546,6 +2609,10 @@ async function serverReady(force) {
               /* v1.3.44 分级覆盖：新来料层级低于存量（tier 数值更大，二级撞一级）→ 保留存量并提示；
                  同级或更高 → 替换（与旧行为一致，来料较新） */
               if (tierOfItem(item) > tierOfItem(oldIt)) {
+                /* v1.3.69 #16：跳过必须真的跳过。旧版只 toast，后面照常
+                   writeJsonToFolder + wrote=true + markDone + 「已写入 N 条」toast，
+                   用户同时收到「跳过」和「已写入」两条矛盾提示，该番号还被计入成功。 */
+                skippedByTier = true;
                 toast('已有一级来源数据（' + (oldIt.platform || '一级') + '），跳过本次二级来源写入', 'ok');
               } else {
                 payload.items[idx] = item;
@@ -2555,6 +2622,8 @@ async function serverReady(force) {
             }
             /* v1.3.59 #22：写盘前确认锁还在自己手里（TTL 可能已被偷） */
             if (!lockStillMine()) { lastErr = new Error('锁已被其他标签页接管，放弃本次覆写'); break; }
+            /* v1.3.69 #16：payload 没被改动就不写盘、不记成功 */
+            if (skippedByTier) { lastErr = null; break; }
             await writeJsonToFolder(INBOX_FILE, payload);
             markRecentWrite(code);
             wrote = true;
@@ -2563,7 +2632,9 @@ async function serverReady(force) {
           finally { releaseInboxLock(); }
           if (!wrote && attempt === 0) await new Promise(r => setTimeout(r, 600));
         }
-        if (wrote) {
+        if (skippedByTier) {
+          setCurrent(null);      /* v1.3.69 #16：按设计跳过——不算成功也不算失败，不触发下载兜底 */
+        } else if (wrote) {
           markDone(code);
           setCurrent(null);      // 本条成功，清掉"当前处理项"
         } else {
@@ -2595,7 +2666,10 @@ async function serverReady(force) {
   async function quickSave(key) {
     const cfg = getCfg();
     const raw = parseDetail(key);
-    if (raw && raw._diag) { warnStructure(key, raw._diag); saveSig(key, raw._diag); }
+    /* v1.3.69 #19：站点一次瞬时抽风（该次缺字段）不能把带 0 的签名写成基线——
+       structureChanged 要求历史签名 /^1+$/，一旦存入含 0 的签名就永远不再告警。
+       v1.3.60 #21 的修复只落在 openParseDiag 一处，这里补上。 */
+    if (raw && raw._diag) { warnStructure(key, raw._diag); if (!raw._diag.miss || !raw._diag.miss.length) saveSig(key, raw._diag); }
     if (!raw || !raw.code) {
       toast('没识别到番号，无法直接抓取；可点「确认入库」手动填', 'err');
       return;
@@ -2640,7 +2714,7 @@ async function serverReady(force) {
     if (stale) stale.remove();
     const cfg = getCfg();
     const raw = preset || parseDetail(key);
-    if (!preset && raw && raw._diag) { warnStructure(key, raw._diag); saveSig(key, raw._diag); }
+    if (!preset && raw && raw._diag) { warnStructure(key, raw._diag); if (!raw._diag.miss || !raw._diag.miss.length) saveSig(key, raw._diag); }
     /* 截图文案与 parseDetail 的上限计算同口径（v1.3.55：一级站也不再写死 999，
        按适配器 maxShots / 用户设置），文案不说谎 */
     /* 与 parseDetail 同口径（含 v1.3.61 的无限制哨兵），文案不说谎 */
@@ -2993,7 +3067,10 @@ async function serverReady(force) {
       setQueue(q);
       setCurrent(next);
       try { GM_setValue(navStampKey(), String(Date.now())); } catch (e) {}
-      if (next && next.url) location.href = next.url;
+      /* v1.3.69 #17：队列跳转必须过协议白名单。next.url 来自 buildSearchUrl(src, c)，
+         而 src.searchUrl 是设置面板可编辑 / 可导入的——填 javascript: 或 data: 就会被
+         直接执行。v1.3.66 #19 只给 jumpToUrl 加了校验，队列推进这条路径绕过它。 */
+      if (next && next.url) jumpToUrl(next.url);
     };
     /* 限速：距上次跳转不足 queueDelay 就先等着 */
     const gap = Math.max(0, parseInt((getCfgSafe() || {}).queueDelay, 10) || 0);
@@ -3053,6 +3130,21 @@ async function serverReady(force) {
   }
   /* v1.3.43：落盘前合并 GM 备份批——批量中途导航/关页时 beforeunload 会把内存批备份进 GM，
      下一轮 finishQueue（或无活动队列时的 recoverBatchBackup）把它一起写回收件箱，不再丢数据。 */
+  /* v1.3.69 #15：入批 ≠ 落盘。旧版在「把条目推进内存批」时就 markDone(code)，
+     而 flushInboxBatch 整批写失败（锁超时 / HTTP 挂 / GM 配额）时，结果面板与
+     抓取报告仍把这批全部报成「成功」，实际数据只在 GM 备份里——用户据此认为抓完了。
+     现在：入批只登记待确认，真写入成功才 markDone。 */
+  let _pendingDoneCodes = [];
+  function flushPendingDone(doneItems) {
+    /* 记账是次要行为：绝不能因为它抛错而中断主流程（否则备份清不掉、toast 发不出） */
+    try {
+      const done = {};
+      (doneItems || []).forEach(it => {
+        if (it && it.code) { done[padKey(it.code)] = 1; markDone(it.code); }
+      });
+      _pendingDoneCodes = _pendingDoneCodes.filter(c => !done[padKey(c)]);
+    } catch (e) {}
+  }
   function flushInboxBatch() {
     let items = (_inboxBatch || []).slice();
     _inboxBatch = null;
@@ -3092,7 +3184,7 @@ async function serverReady(force) {
         for (let i = 0; i < items.length; i += CHUNK) {
           const part = items.slice(i, i + CHUNK);
           const hr = await httpJson('POST', '/api/inbox', part, 60000);
-          if (hr.ok) { sent += part.length; part.forEach(it => markRecentWrite(it.code)); continue; }
+          if (hr.ok) { sent += part.length; part.forEach(it => markRecentWrite(it.code)); flushPendingDone(part); continue; }
           failed = true; lastWhy = hr.why || '未知错误'; break;
         }
         if (!failed) {
@@ -3118,6 +3210,7 @@ async function serverReady(force) {
         payload.updatedAt = new Date().toISOString();
         payload.items = dedupeInbox((payload.items || []).concat(items));
         await writeJsonToFolder(INBOX_FILE, payload);
+        flushPendingDone(items);   /* v1.3.69 #15：文件夹路径确认落盘后才记成功 */
         try { GM_setValue(BATCH_BK_KEY, 'null'); } catch (e) {}
         toast('批量写入收件箱完成（' + payload.items.length + ' 条）', 'ok');
       } catch (e) {
@@ -3140,12 +3233,27 @@ async function serverReady(force) {
       const items = bk.items;
       const srv = await serverReady();
       if (srv && srv.ok) {
-        const hr = await httpJson('POST', '/api/inbox', items, 20000);
-        if (hr.ok) {
+        /* v1.3.69 #18：恢复备份也要分片。旧版整批一次性 POST（20s 超时），
+           v1.3.65 #10 给 flushInboxBatch 加的 CHUNK=5 分片没覆盖这条路径——
+           批里带 base64 截图时必然超时 → 备份永不落地，且每进一个页面重发一次整批。 */
+        const RCHUNK = 5;
+        let rsent = 0, rfail = false, rwhy = '';
+        for (let i = 0; i < items.length; i += RCHUNK) {
+          const part = items.slice(i, i + RCHUNK);
+          const hr = await httpJson('POST', '/api/inbox', part, 60000);
+          if (hr.ok) { rsent += part.length; flushPendingDone(part); continue; }
+          rfail = true; rwhy = hr.why || '未知错误'; break;
+        }
+        if (!rfail) {
           try { GM_setValue(BATCH_BK_KEY, 'null'); } catch (e) {}
-          toast('已恢复保存上次未来得及写入的 ' + items.length + ' 条抓取', 'ok');
+          toast('已恢复保存上次未来得及写入的 ' + rsent + ' 条抓取', 'ok');
           return;
         }
+        /* 部分成功：只把未发出的写回备份，已成功的不重发 */
+        const rrest = items.slice(rsent);
+        try { GM_setValue(BATCH_BK_KEY, JSON.stringify({ savedAt: Date.now(), items: rrest })); } catch (e) {}
+        toast('恢复备份部分失败（' + rwhy + '）：已写入 ' + rsent + ' 条，剩余 ' + rrest.length + ' 条继续暂存', 'err');
+        return;
       }
       /* v1.3.51 A-01（P2）：HTTP 不在线时，只有「已授权文件夹」才走文件夹回退。
          旧版无条件 readJsonFromFolder → ensureFolder：用户只是打开一个影片页面就弹系统
@@ -4646,7 +4754,7 @@ async function serverReady(force) {
              「本页就是队列当前项」，不是就不开窗（详见 autoOpenAllowed）。 */
           const raw2 = autoOpenAllowed(key);
           if (!raw2) return;
-          if (raw2._diag) { warnStructure(key, raw2._diag); saveSig(key, raw2._diag); }
+          if (raw2._diag) { warnStructure(key, raw2._diag); if (!raw2._diag.miss || !raw2._diag.miss.length) saveSig(key, raw2._diag); }
           toast('队列剩余 ' + q.length + ' 个，自动抓取中…', 'ok');
           openConfirmModal(key, raw2);
         }, 900);

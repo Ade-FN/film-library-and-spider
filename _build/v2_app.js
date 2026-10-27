@@ -12,7 +12,7 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.33';
+  var APP_VERSION = '2.1.37';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
@@ -135,7 +135,7 @@
   var API = {
     status: function () { return j('/api/status'); },
     data: function () { return j('/api/data'); },
-    save: function (payload) { return j('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: payload }) }); },
+    save: function (payload, keepalive) { return j('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: payload }) }, keepalive); },
     config: function (dataDir, videoDir) { return j('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataDir: dataDir, videoDir: videoDir || '' }) }); },
     upload: function (kind, name, buf) {
       /* v2.1.29 A-14：改走 j()——旧版裸 fetch 绕过了友好错误映射，服务端没起时
@@ -342,11 +342,11 @@
     state.saveTimer = setTimeout(saveData, 600);
     refreshAll();
   }
-  function saveData(silent) {
+  function saveData(silent, keepalive) {
     clearTimeout(state.saveTimer);
     if (!state.configured) return Promise.resolve(false);
     var p = payloadOf();
-    return API.save(p).then(function () {
+    return API.save(p, keepalive).then(function () {
       state.dirty = false;
       if (!silent) toast('已保存 ' + p.rows.length + ' 条到 ' + baseName(state.dataDir), 'ok');
       return true;
@@ -466,7 +466,12 @@
   function dataUrlToBlob(url) {
     var m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(String(url || ''));
     if (!m) return null;
-    var bin = atob(m[3]);
+    /* v2.1.36 #9：atob 对非法 base64（含换行/空白、URL 编码残留、以及旧形态
+       来料把 http URL 当成裸 base64 送来）会抛 InvalidCharacterError，异常穿
+       forEach 冒泡到 Promise.all → 一条脏来料就中断整批（几十条）导入。
+       单条坏数据应该被跳过并计数，而不是拖垮整批。 */
+    var bin;
+    try { bin = atob(m[3]); } catch (e) { return null; }
     var arr = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
     return new Blob([arr], { type: m[1] || 'image/jpeg' });
@@ -627,6 +632,11 @@
       if (vpEl.clientWidth === 0 || vpEl.clientHeight === 0) return null;
       var vw = vpEl.clientWidth - 2;             // 去掉边框
       var avail = vw - g.pad * 2;                     // 内容区实际可用宽
+      /* v2.1.37 #27：avail 可能 <= 0（视口被拖到极窄 / 分屏 / 系统缩放，
+         clientWidth > 0 却容不下左右 padding）。旧版只守了 clientWidth===0，
+         此时 cols 被兜成 1 而 w 仍为负 → --card-w/--card-h 负值、rowH<=0，
+         paint 的守卫直接 return，卡片区彻底画不出来。几何不可用即返回 null。 */
+      if (!(avail > 0)) return null;
       /* 目标一行 3 张并铺满整行：先按 3 列反推卡宽，低于 minW 才退列数；
          卡宽一律由「可用宽 - 列间距」均分得到，不封顶 → 任何宽度下都填满、左右不留白。
          封面 100×150（紧凑 72×108）恒定，宽出来的部分全给右侧文本列。 */
@@ -634,7 +644,7 @@
       if (Math.floor((avail - 2 * g.gap) / 3) < g.minW) {
         cols = Math.max(1, Math.floor((avail + g.gap) / (g.w + g.gap)));
       }
-      var w = Math.floor((avail - (cols - 1) * g.gap) / cols);
+      var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
       var cvW = Math.min(Math.round(w * g.k), g.cvMax);
       var h = Math.round(cvW * 1.5);
@@ -946,8 +956,20 @@
   }
 
   /* ---- 表单 ---- */
+  /* v2.1.36 #14：blob URL 必须显式释放。旧版只 createObjectURL 从不 revoke——
+     反复「编辑 → 选图 → 换一部再选图」，或一次拖入几十张截图，被丢弃的 blob URL
+     会一直持有底层 Blob（每张几 MB）直到页面关闭。只释放 blob: 开头的，
+     已有图片的 http URL 不能碰（那是服务端资源）。 */
+  function releasePendingUrls() {
+    var pi = state.pendingImages;
+    if (!pi) return;
+    function rel(u) { if (u && /^blob:/.test(u)) { try { URL.revokeObjectURL(u); } catch (e) {} } }
+    if (pi.cover) rel(pi.cover.url);
+    (pi.shots || []).forEach(function (s) { if (s) rel(s.url); });
+  }
   function openForm(row) {
     state.editing = row ? row.id : null;
+    releasePendingUrls();   /* v2.1.36 #14：换一部片子编辑前先释放上一部的预览 URL */
     state.pendingImages = { cover: row && row.cover ? { blob: null, url: imgSrc(row.cover), path: row.cover.path, name: row.cover.name } : null, shots: row ? row.shots.map(function (s) { return { blob: null, url: imgSrc(s), path: s.path, name: s.name }; }) : [] };
     $('#formTitle').textContent = row ? ('编辑 · ' + row.code) : '新增影片';
     var f = $('#filmForm');
@@ -987,6 +1009,8 @@
       if (!/^image\//.test(f.type)) return;
       var url = URL.createObjectURL(f);
       if (which === 'cover') {
+        var _oc = state.pendingImages.cover;
+        if (_oc && _oc.url && /^blob:/.test(_oc.url)) { try { URL.revokeObjectURL(_oc.url); } catch (e) {} }
         state.pendingImages.cover = { blob: f, url: url, path: '', name: f.name };
       } else {
         state.pendingImages.shots.push({ blob: f, url: url, path: '', name: f.name });
@@ -1032,6 +1056,12 @@
     restampSrcTier(row);          /* v2.1.21：无章行补填 platform 后补层级章，保持落盘一致 */
     row.updated = Date.now();
     var btn = $('#formSubmit');
+    /* v2.1.36 #8：上传前先快照字段。旧版把字段直接写进 state.rows 里的活对象，
+       上传失败只恢复按钮文本、不回滚字段——界面显示旧值、内存已是新值，之后
+       任何一次别的保存（批量加标签 / 导入 / 10s 自动导入）都会把用户从未确认
+       成功的编辑静默落盘。新建路径 v2.1.26 已修（isNew 才 push），编辑路径漏了。 */
+    var _snap = null;
+    if (!isNew) { _snap = {}; Object.keys(row).forEach(function (k) { _snap[k] = row[k]; }); }
     btn.disabled = true; btn.textContent = '保存中…';
     uploadPendingImages(code).then(function (up) {
       /* v2.1.17：图片以表单预览列表为最终态——删了=移除，没换图=保留原 path，
@@ -1050,8 +1080,11 @@
       closeModal('formMask');
       commit();
       saveData();
+      releasePendingUrls();   /* v2.1.36 #14：保存成功后本次预览 URL 已完成使命 */
       toast(isNew ? ('已新增 ' + code) : ('已保存 ' + code), 'ok');
     }).catch(function (e) {
+      /* v2.1.36 #8：回滚到快照，保证「取消/失败」后内存与界面一致 */
+      if (_snap) { Object.keys(_snap).forEach(function (k) { row[k] = _snap[k]; }); refreshAll(); }
       btn.disabled = false; btn.textContent = '保存';
       $('#formErr').textContent = '图片上传失败：' + ((e && e.message) || e);
     });
@@ -1266,7 +1299,11 @@
   /* 合并一批收件箱来料。counts = {added, filled} 累加器（多轮合并汇总）。
      返回 Promise：图片上传完成 + 落盘。 */
   function mergeInboxItems(items, counts) {
-    var byCode = {}, byKey = {}, imgJobs = [];
+    /* v2.1.35 #4：clearedShots 登记「本次被清空的截图」——一级来料覆盖时
+       row.shots.length = 0 是破坏性前置操作，若后续异步上传失败而不回滚，
+       外层 catch（手动导入 / 10s 自动轮询）仍会 commit() 落盘，该片截图
+       记录就永久消失且没有任何提示。 */
+    var byCode = {}, byKey = {}, imgJobs = [], clearedShots = [], touchedRows = [];
     state.rows.forEach(function (r) { byCode[r.code.toLowerCase()] = r; byKey[codeDedupeKey(r.code)] = r; });
     items.forEach(function (it) {
       if (!it) return;
@@ -1328,7 +1365,8 @@
       }
       if (Array.isArray(it.shots) && it.shots.length && (over || !row.shots.length)) {
         /* v2.1.21：一级来料覆盖时先清掉二级截图，再传一级的（否则变成混合两张站点） */
-        if (over) row.shots.length = 0;
+        if (touchedRows.indexOf(row) === -1) touchedRows.push(row);
+        if (over && row.shots.length) { clearedShots.push({ row: row, old: row.shots.slice() }); row.shots.length = 0; }
         /* #67：截图不限量。Spider 一级站（FANZA/MGS）按 999 上限全抓，
            旧代码在这里 slice(0,9) 又截回 9 张，两边口径不一致；命名序号已 padStart 到 2 位，≥100 张不撞名。 */
         it.shots.forEach(function (s, i) {
@@ -1337,16 +1375,32 @@
           if (du.indexOf('data:') !== 0) du = 'data:image/jpeg;base64,' + du;
           if (!/^data:/.test(du)) return;
           var b = dataUrlToBlob(du);
-          if (b) imgJobs.push(API.upload('shots', shotNameOf(row.code, i), b).then(function (r) {
-            row.shots.push({ name: shotNameOf(row.code, i), path: r.path });
-          }));
+          if (b) {
+            if (touchedRows.indexOf(row) === -1) touchedRows.push(row);
+            imgJobs.push(API.upload('shots', shotNameOf(row.code, i), b).then(function (r) {
+              /* v2.1.36 #10：按下标回填而不是 push。并发上传的完成顺序不确定，
+                 push 会让截图落库顺序随机错乱，与 shotAt[i] 及详情页「截图 N」
+                 的编号不再对应（uploadPendingImages 早就用 out.shots[i] 的写法，
+                 收件箱这条路径一直没跟上）。 */
+              row.shots[i] = { name: shotNameOf(row.code, i), path: r.path };
+            }));
+          }
         });
       }
     });
     API.backup('Film Library pre-import ' + stamp() + '.json', payloadOf()).catch(function () {});
     return Promise.all(imgJobs).then(function () {
+      /* v2.1.36 #10：按下标回填会在「跳过空项」处留下 undefined 洞，落盘前压掉 */
+      touchedRows.forEach(function (r) { r.shots = (r.shots || []).filter(Boolean); });
       state.rowsVersion++;
       return saveData(true);
+    }, function (e) {
+      /* v2.1.35 #4：任一图片上传失败 → 回滚本次被清空的截图。
+         旧版此时 row.shots 已是空数组，而调用方（手动导入 / 10s 自动轮询）
+         的 catch 仍会 commit() 落盘 → 截图记录永久丢失且无任何提示。
+         回滚后调用方 commit() 出来的是与磁盘一致的完整状态。 */
+      clearedShots.forEach(function (c) { c.row.shots = c.old; });
+      throw e;
     });
   }
   /* 来料里不在已导入集合中的新条目（按归一番号判定） */
@@ -1693,8 +1747,16 @@
     var rz = null;
     window.addEventListener('resize', function () {
       clearTimeout(rz);
-      rz = setTimeout(function () { VS.render(); }, 150);
+      rz = setTimeout(function () { VS.render(); syncNavH(); }, 150);
     });
+  }
+  /* v2.1.34：主导航改为浮动吸顶卡。窄屏会换行变高，故实测其高度写入 --navH，
+     供 #topPanel / .p-side 的 sticky 偏移避让（写死高度会在换行时错位）。 */
+  function syncNavH() {
+    var n = document.getElementById('mainTabs');
+    if (!n) return;
+    var h = Math.round(n.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--navH', h + 'px');
   }
   function setView(v) {
     state.view = v;
@@ -1865,12 +1927,17 @@
     $('#coverPreview').addEventListener('click', function (ev) {
       var rm = ev.target.closest('[data-rm]');
       if (!rm) return;
+      var _dc = state.pendingImages.cover;
+      if (_dc && _dc.url && /^blob:/.test(_dc.url)) { try { URL.revokeObjectURL(_dc.url); } catch (e) {} }
       state.pendingImages.cover = null; renderImagePreviews();
     });
     $('#shotsPreview').addEventListener('click', function (ev) {
       var rm = ev.target.closest('[data-rm]');
       if (!rm) return;
-      state.pendingImages.shots.splice(+rm.getAttribute('data-i'), 1);
+      var _di = +rm.getAttribute('data-i');
+      var _rm = state.pendingImages.shots[_di];
+      if (_rm && _rm.url && /^blob:/.test(_rm.url)) { try { URL.revokeObjectURL(_rm.url); } catch (e) {} }
+      state.pendingImages.shots.splice(_di, 1);
       renderImagePreviews();
     });
   }
@@ -1894,6 +1961,15 @@
         .catch(function (e) { toast('备份失败：' + ((e && e.message) || e), 'err'); });
     });
   }
+  /* v2.1.36 #12：boot 成功分支与「配置/更改数据目录」之后要跑的初始化是同一套。
+     旧版 setup 路径只 loadData().then(refreshAll)：漏了 loadMeta（演员/标签
+     元数据为空）和 startAutoInbox（自动导入整会话失效，必须刷新页面才恢复）。
+     startAutoInbox 自带 _autoInboxTimer 幂等守卫，重复调用安全。 */
+  function afterReady() {
+    loadMeta().then(renderTabCounts).catch(function () {});
+    refreshAll();
+    startAutoInbox();
+  }
   function bindSetup() {
     $('#btnChangeDir').addEventListener('click', openSetup);
     $('#setupClose').addEventListener('click', function () { closeModal('setupMask'); });
@@ -1902,9 +1978,14 @@
       if (!dir) { $('#setupMsg').textContent = '请填数据目录路径'; return; }
       $('#setupMsg').textContent = '正在连接…';
       API.config(dir, $('#setupVideoPath').value.trim()).then(function () {
-        closeModal('setupMask');
-        toast('已连接数据目录', 'ok');
-        return loadData().then(refreshAll);
+        /* v2.1.36 #13：加载成功之后再关弹窗。旧版先 closeModal 再 loadData，
+           失败时错误写进已经隐藏的 #setupMsg，用户只看到「已连接数据目录」的
+           成功 toast，随后面对空/旧数据的界面却不知道原因。 */
+        return loadData().then(function () {
+          afterReady();   /* v2.1.36 #12：与 boot 共用初始化（loadMeta + 自动导入） */
+          closeModal('setupMask');
+          toast('已连接数据目录', 'ok');
+        });
       }).catch(function (e) { $('#setupMsg').textContent = '连接失败：' + ((e && e.message) || e); });
     });
   }
@@ -2021,7 +2102,10 @@
   }
   function bindLifecycle() {
     window.addEventListener('pagehide', function () {
-      if (state.dirty) saveData(true);
+      /* v2.1.36 #11：卸载阶段的普通 fetch 会被浏览器直接取消，必须带 keepalive
+         才能真正发出去。metaPost 早就这样做了（v2.1.29 A-13），数据保存这条
+         主路径一直漏着——改完数据立刻关页面/关浏览器就会丢掉 600ms 防抖窗内的改动。 */
+      if (state.dirty) saveData(true, true);
       flushMeta();   /* v2.1.29 A-13：meta 防抖项随页面卸载立即推服 */
     });
     document.addEventListener('visibilitychange', function () {
@@ -2043,15 +2127,21 @@
     $('#viewCardBtn').classList.toggle('on', state.view !== 'table');
     $('#viewTableBtn').classList.toggle('on', state.view === 'table');
     $('#appVer').textContent = 'v' + APP_VERSION + ' · 本地服务版';
+    syncNavH();
 
     bindSearch(); bindFilters(); bindView(); bindCards(); bindBulk();
     bindDetail(); bindForm(); bindTools(); bindSetup(); bindTabs(); bindViewer(); bindLifecycle();
-    bindTag(); bindActor(); bindVideo(); bindFanza(); bindFill();
+    /* v2.1.37 #30：五个 bind 串行且无故障隔离——任一个依赖的 DOM id 缺失/改名，
+       第一个抛 null.addEventListener 之后，后面几个页面的事件全绑不上，页面整片
+       失效而构建照样「✅ 通过」。逐个隔离并留下可查的报错。 */
+    [['bindTag', bindTag], ['bindActor', bindActor], ['bindVideo', bindVideo], ['bindFanza', bindFanza], ['bindFill', bindFill]]
+      .forEach(function (b) {
+        try { b[1](); }
+        catch (e) { try { console.error('[FL] ' + b[0] + ' 绑定失败：', e && e.message); } catch (e2) {} }
+      });
 
     loadData().then(function () {
-      loadMeta().then(renderTabCounts);
-      refreshAll();
-      startAutoInbox();   /* v2.1.30：收件箱自动导入（默认开；数据就绪后立即检一次） */
+      afterReady();   /* v2.1.36 #12：与「配置数据目录」后共用同一套初始化 */
       var tab = lsGet(LS.tab, 'home');
       var btn = $all('#mainTabs .tab').filter(function (b) { return b.getAttribute('data-tab') === tab; })[0];
       if (btn && tab !== 'home') btn.click();

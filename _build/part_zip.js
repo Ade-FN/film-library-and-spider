@@ -75,7 +75,12 @@ function unzip(buf){
     p += 46 + nlen + elen + clen;
   }
   return Promise.all(jobs).then(function(list){
-    return list.filter(function(x){ return !!x; });
+    /* v2.1.37 #22：解压失败（非 store/deflate 压缩、AES 加密、包体损坏）的条目
+     过去被直接 filter 掉且无人计数——用户拿到的是「导入成功」提示，实际缺图。
+     把跳过数挂在返回数组上，由调用方明确提示。 */
+  var okList = list.filter(function(x){ return !!x; });
+  okList.skipped = list.length - okList.length;
+  return okList;
   });
 }
 function readEntry(raw, method, name){
@@ -134,6 +139,8 @@ function importZipFile(f){
   var rd = new FileReader();
   rd.onload = function(){
     unzip(new Uint8Array(rd.result)).then(function(files){
+      /* v2.1.37 #22：有条目解不开就必须说清楚，否则用户以为图片齐了 */
+      if(files.skipped) toast('压缩包里有 ' + files.skipped + ' 个条目无法解压（压缩方式不支持或包体损坏），图片可能不全', 'warn');
       var je = null, i;
       for(i = 0; i < files.length; i++){ if(/\.json$/i.test(files[i].name)){ je = files[i]; break; } }
       if(!je) throw new Error('压缩包里没找到数据 json');
@@ -156,19 +163,30 @@ function importZipFile(f){
           downloaded: item.downloaded, saved: item.saved, ts: Date.now()
         });
         /* 图片：上传服务端 → 落 path */
+        /* v2.1.35 #7：jobs 里装的是「任务函数」而不是已发出的 Promise。
+           旧版 API.upload() 写在 jobs.push() 的实参位置——遍历时就同步发出去了，
+           导入几百行（上千张图）会一次打出上千个并发 POST，浏览器连接池被打满、
+           本地 8787 被压垮、页面长时间无响应（exportZip 的同类问题早已限并发 6，
+           导入这条路径一直没跟上）。
+           顺便修掉闭包：cn/cd、sn/sd 都是 var（函数作用域），旧版 .then 里引用
+           的是循环结束后的最后一次值，多图时会把 A 的图写成 B 的 path。 */
         if(item.cover){
           var cn = item.cover.path || ('covers/' + (item.cover.name || coverNameOf(code)));
           var cd = map[cn] || (item.cover.name ? (map['covers/' + item.cover.name] || map[item.cover.name]) : null);
-          if(cd) jobs.push(API.upload('covers', baseOf(cn), new Blob([cd])).then(function(r){
-            row.cover = { name: baseOf(cn), path: r.path };
-          }));
+          if(cd) jobs.push((function(_cn, _cd){
+            return function(){ return API.upload('covers', baseOf(_cn), new Blob([_cd])).then(function(r){
+              row.cover = { name: baseOf(_cn), path: r.path };
+            }); };
+          })(cn, cd));
         }
         (item.shots || []).forEach(function(s, i){
           var sn = s.path || ('shots/' + (s.name || shotNameOf(code, i)));
           var sd = map[sn] || (s.name ? (map['shots/' + s.name] || map[s.name]) : null);
-          if(sd) jobs.push(API.upload('shots', baseOf(sn), new Blob([sd])).then(function(r){
-            row.shots.push({ name: baseOf(sn), path: r.path });
-          }));
+          if(sd) jobs.push((function(_sn, _sd, _i){
+            return function(){ return API.upload('shots', baseOf(_sn), new Blob([_sd])).then(function(r){
+              row.shots[_i] = { name: baseOf(_sn), path: r.path };
+            }); };
+          })(sn, sd, i));
         });
         state.rows.push(row);
         added++;
@@ -180,9 +198,18 @@ function importZipFile(f){
          commit 也不 saveData。但循环里 state.rows.push(row) 早已执行：内存有数据、
          磁盘没有，用户看到「导入完成」以为成功，刷新页面数据全没了，且备份与库不一致。
          改：逐任务 settle，无论成败都 commit+saveData，提示里给出失败图片数。 */
-      var settleAll = Promise.all(jobs.map(function(p){
-        return p.then(function(v){ return { ok: true, v: v }; }, function(err){ return { ok: false, e: err }; });
-      }));
+      /* v2.1.35 #7：限并发 6 逐批推进（与 exportZip 的 runBatch 同构）。
+         逐任务 settle：失败只记账不中断，最后统一 commit+saveData。 */
+      var CONC_IN = 6, atIn = 0, settle = [];
+      function runImportBatch(){
+        var batch = jobs.slice(atIn, atIn + CONC_IN);
+        if(!batch.length) return Promise.resolve();
+        atIn += CONC_IN;
+        return Promise.all(batch.map(function(fn){
+          return fn().then(function(v){ return { ok: true, v: v }; }, function(err){ return { ok: false, e: err }; });
+        })).then(function(rs){ settle = settle.concat(rs); return runImportBatch(); });
+      }
+      var settleAll = runImportBatch().then(function(){ return settle; });
       settleAll.then(function(rs){
         var bad = rs.filter(function(r){ return !r.ok; }).length;
         commit(); saveData();

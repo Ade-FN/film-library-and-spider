@@ -255,7 +255,12 @@ function saveActorFromForm(){
   if(!ja && !zh && !en){ toast('至少填一个名字（日文 / 中文 / 英文）', 'err'); return; }
   var a = null;
   if(state.actorId) for(var i = 0; i < state.actors.length; i++){ if(state.actors[i].id === state.actorId){ a = state.actors[i]; break; } }
-  if(!a){ a = normalizeActor({}); state.actors.push(a); }
+  var _isNewActor = false;
+  if(!a){ a = normalizeActor({}); state.actors.push(a); _isNewActor = true; }
+  /* v2.1.37 #20：上传前先快照。旧版把字段先写进内存对象，头像上传失败时
+     after()（含 saveMeta + renderActorPage）没执行——UI 显示旧值、内存已是新值，
+     用户点「取消」也回不去，下一次任意 saveMeta 会把这次「已取消」的修改悄悄落盘。 */
+  var _snapA = { nameJa: a.nameJa, nameZh: a.nameZh, nameEn: a.nameEn, alias: a.alias, gender: a.gender, note: a.note, ts: a.ts, avatar: a.avatar };
   a.nameJa = ja; a.nameZh = zh; a.nameEn = en;
   a.alias = splitList(val('#actorAlias')).join(', ');
   a.gender = val('#actorGender') || 'f';
@@ -279,6 +284,9 @@ function saveActorFromForm(){
       a.avatar = { name: a.id + ext, path: r.path };
       after();
     }).catch(function(e){
+      /* v2.1.37 #20：回滚字段（新建的还要撤出列表），保证「取消/失败」后一致 */
+      Object.keys(_snapA).forEach(function(k){ a[k] = _snapA[k]; });
+      if(_isNewActor){ var _ai = state.actors.indexOf(a); if(_ai >= 0) state.actors.splice(_ai, 1); }
       btn.disabled = false; btn.textContent = '保存';
       toast('头像上传失败：' + ((e && e.message) || e), 'err');
     });

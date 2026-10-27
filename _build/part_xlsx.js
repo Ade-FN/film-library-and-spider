@@ -32,15 +32,20 @@ function exportXlsx(){
   loadXlsx().then(function(XLSX){
     /* v2.1.20：补「已收藏」（saved）列——此前只有「已下载」，而 saved 是独立字段，
        导出丢列 = round-trip 丢数据。 */
-    var head = ['编号', 'FANZA番号', '原名', '中文名', '影片日期', '发行商', '演员名称', '女演员', '男演员', '导演', '观看状态', '标签', '备注', '已下载', '已收藏', '封面文件名', '截图文件名', '来源'];
+    /* v2.1.35 #6：补「磁力链接 / 系列 / 来源层级」三列。旧版表头缺这三列，
+       而 importTabular 是能读它们的（iMagnet / iSrcTier 都在）——把 XLSX
+       当备份用「导出 → 再导入」一轮，这三个字段就被静默清空，且无任何提示。 */
+    var head = ['编号', 'FANZA番号', '原名', '中文名', '影片日期', '发行商', '演员名称', '女演员', '男演员', '导演', '观看状态', '标签', '备注', '磁力链接', '系列', '已下载', '已收藏', '封面文件名', '截图文件名', '来源', '来源层级'];
     var aoa = [head];
     state.rows.forEach(function(r){
       aoa.push([
         r.code, fanzaCodeOf(r.code), r.title, r.titleCn || '', r.release || '', r.maker || '',
-        r.actor, (r.actorF || ''), (r.actorM || ''), (r.director || ''), r.status, (r.tags || []).join('、'), r.note, r.downloaded ? '是' : '否', r.saved ? '是' : '否',
+        r.actor, (r.actorF || ''), (r.actorM || ''), (r.director || ''), r.status, (r.tags || []).join('、'), r.note,
+        (r.magnet || []).filter(Boolean).join(' / '), (r.series || ''),
+        r.downloaded ? '是' : '否', r.saved ? '是' : '否',
         (r.cover && r.cover.name) || '',
         r.shots.map(function(s){ return s.name; }).join(' / '),
-        (r.platform || '')
+        (r.platform || ''), (r.srcTier || 0)
       ]);
     });
     var ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -93,6 +98,7 @@ function importTabular(aoa){
   var iDirector = col(['导演', 'director']);
   var iPlatform = col(['来源', '平台', 'platform']);
   var iSrcTier = col(['来源层级', 'srcTier']);
+  var iSeries  = col(['系列', 'series']);
   if(iCode === -1){ toast('缺少「编号」列，无法导入', 'err'); return; }
   var added = 0, updated = 0;
   for(var n = 1; n < aoa.length; n++){
@@ -112,6 +118,7 @@ function importTabular(aoa){
     setIf('actorM', iActorM === -1 ? '' : cells[iActorM]);
     setIf('director', iDirector === -1 ? '' : cells[iDirector]);
     setIf('platform', iPlatform === -1 ? '' : cells[iPlatform]);
+    setIf('series', iSeries === -1 ? '' : cells[iSeries]);
     restampSrcTier(row);
     /* v2.1.21：来源层级列（一级/二级/1/2 都认；无此列的旧表不受影响） */
     if(iSrcTier !== -1 && cells[iSrcTier] != null && String(cells[iSrcTier]).trim()){

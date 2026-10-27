@@ -173,7 +173,15 @@ function validateProduct(core) {
     'var VS = {', 'var API', 'function normalizeRow', 'id="vsViewport"', 'id="setupMask"',
     'function renderVideoPage', 'function renderActorPage', 'function renderTagPage',
     'function exportZip', 'function importTabular', 'function pendingRowsFor',
-    'id="fanzaMask"', 'id="fillMask"', 'id="actorMergeMask"', 'id="videoEl"', 'id="tagList"', 'id="actorList"'
+    'id="fanzaMask"', 'id="fillMask"', 'id="actorMergeMask"', 'id="videoEl"', 'id="tagList"', 'id="actorList"',
+    /* v2.1.37 #30：补齐部件实际依赖的 DOM id。旧版只校验 8 项，而五个 bindX 要抓
+       约 40 个节点——任一 id 被改名/删除时构建照样「✅ 通过」，页面整片失效。 */
+    'id="actorJa"', 'id="actorZh"', 'id="actorEn"', 'id="actorAlias"', 'id="actorGender"',
+    'id="actorNote"', 'id="actorSaveBtn"', 'id="actorDelBtn"', 'id="actorAddBtn"',
+    'id="tagAddBtn"', 'id="tagNewName"', 'id="tagSearch"', 'id="tagGroupList"', 'id="tagList"',
+    'id="fanzaList"', 'id="fanzaBtn"', 'id="fanzaBatchBtn"', 'id="fanzaExportBtn"',
+    'id="fillCode"', 'id="fillBtn"', 'id="fillReadFailedBtn"', 'id="fillExportPendingBtn"',
+    'id="regexToggle"', 'id="searchInput"', 'id="tabCountTag"'
   ].forEach(k => { if (core.indexOf(k) === -1) errs.push('缺少：' + k); });
   return errs;
 }

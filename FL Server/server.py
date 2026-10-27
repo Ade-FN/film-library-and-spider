@@ -23,7 +23,7 @@ from urllib.parse import urlparse, parse_qs, unquote, quote
 # v1.1.8（附录批次 6）：A-15 _send_file 分块流式（不再整文件读内存）/ A-16 对拍
 # Node error 监听 / A-17 配置 GBK 回退解码 / A-18 双端错误码对齐（400/403/404、
 # 码点序、损坏收件箱拒绝导入）/ A-19 原子写 fsync / A-20 socket 超时 + 负 CL 守卫。
-VERSION = '1.1.9'
+VERSION = '1.1.11'
 PORT_FIRST = 8787
 PORT_LAST = 8796
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,21 +57,39 @@ WRITE_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------- 文件工具
+# v1.1.10 #2：单文件读入上限（64MB，与 Node 端 MAX_TEXT_BYTES 一致）。
+# 收件箱归档长期累积可达数百 MB（实测 866MB），整读会把数 GB 吃进内存，
+# 且与 Node 端「读不动就降级」的行为不一致。超过门限按读不到返回 None。
+MAX_TEXT_BYTES = 64 * 1024 * 1024
+
+
+def file_too_large(p):
+    try:
+        return os.path.isfile(p) and os.path.getsize(p) > MAX_TEXT_BYTES
+    except Exception:
+        return False
+
+
 def read_text(p):
     # v1.1.8 A-17：配置文件可能被记事本另存为 GBK/ANSI。旧版 utf8 严格解码失败
     # 直接返回 None → 全端 409「data dir not configured」（Node 端则是静默替换
     # 字符后报乱码路径）。现在 utf-8 失败回退 GBK，两端行为对齐。
     try:
+        if file_too_large(p):
+            return None
         with open(p, 'rb') as f:
             raw = f.read()
     except Exception:
         return None
-    for enc in ('utf-8', 'gbk'):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode('utf-8', 'replace')
+    try:
+        for enc in ('utf-8', 'gbk'):
+            try:
+                return raw.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return raw.decode('utf-8', 'replace')
+    except Exception:
+        return None
 
 
 def clean_path_text(s):
@@ -180,7 +198,9 @@ def pad_key(code):
 def digit_len(code):
     # v1.1.7 BUG-30：re.ASCII —— Python 的 \d 默认会匹配全角数字，
     # JS 的 \d 只认 ASCII，两端对全角番号打分会不同（dedupe 结果随端点漂移）
-    m = re.search(r'(\d+)\s*$', str('' if code is None else code), re.ASCII)
+    # v1.1.11 #24：与 Node 端一致——先 strip 再匹配（两端都用各自 trim/strip
+    # 去掉统一的空白集合），消除 re.ASCII 造成的 \s 语义差异
+    m = re.search(r'(\d+)\s*$', str('' if code is None else code).strip(), re.ASCII)
     return len(m.group(1)) if m else 0
 
 
@@ -212,7 +232,8 @@ def _has_img(v):
     if isinstance(v, str):
         return bool(v.strip())
     if isinstance(v, dict):
-        return any(str(x or '').strip() for x in v.values())
+        # v1.1.11 #25：同 score_item，假值不能当空
+        return any(x is not None and str(x).strip() for x in v.values())
     return bool(v)
 
 
@@ -222,7 +243,10 @@ def score_item(it):
     n = 0
     # v1.1.3：对齐 FL Spider v1.3.40 十字段字段体系——tags/releaseSale/releaseStream 已废
     for k in ('title', 'titleCn', 'actorF', 'actorM', 'actor', 'maker', 'release', 'magnet'):
-        if str(it.get(k) or '').strip():
+        # v1.1.11 #25：与 Node 端一致——只看「非 None 且去空白非空」。
+        # 旧版用 or '' 把 0 / false 当空，与 Node 的 ==null 判定差 1 分
+        v = it.get(k)
+        if v is not None and str(v).strip():
             n += 1
     if _has_img(it.get('cover')):
         n += 2
@@ -533,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
     def _route_get(self):
         u = urlparse(self.path)
         path = unquote(u.path)
-        qs = parse_qs(u.query)
+        qs = parse_qs(u.query, keep_blank_values=True)
 
         if path in ('/', '/index.html'):
             html = read_text(get_app_file())
@@ -583,18 +607,26 @@ class Handler(BaseHTTPRequestHandler):
             st = {'ok': True, 'server': 'python', 'version': VERSION,
                   'configured': bool(data_dir), 'dataDir': data_dir or ''}
             if data_dir:
-                inbox_txt = read_text(os.path.join(data_dir, INBOX_FILE))
-                done_txt = read_text(os.path.join(data_dir, INBOX_DONE))
+                inbox_p = os.path.join(data_dir, INBOX_FILE)
+                done_p = os.path.join(data_dir, INBOX_DONE)
+                inbox_txt = read_text(inbox_p)
+                done_txt = read_text(done_p)
+                # v1.1.10 #2：与 Node 端对齐——超大文件读不动时计数记 0，
+                # 但置 oversize 标记，避免前端把「读不动」误显示成「收件箱是空的」
+                inbox_big = file_too_large(inbox_p)
+                done_big = file_too_large(done_p)
                 st['exists'] = {
                     'main': os.path.isfile(os.path.join(data_dir, MAIN_FILE)),
                     'mainOld': os.path.isfile(os.path.join(data_dir, MAIN_FILE_OLD)),
-                    'inbox': inbox_txt is not None,
+                    'inbox': inbox_txt is not None or inbox_big,
                 }
                 st['counts'] = {
                     'films': count_films(data_dir),
                     'inbox': len(parse_inbox(inbox_txt) or []),
                     'archive': len(parse_inbox(done_txt) or []),
                 }
+                if inbox_big or done_big:
+                    st['oversize'] = {'inbox': inbox_big, 'archive': done_big}
             self._json(200, st)
             return
 
@@ -778,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
     def _route_post(self):
         u = urlparse(self.path)
         path = unquote(u.path)
-        qs = parse_qs(u.query)
+        qs = parse_qs(u.query, keep_blank_values=True)
 
         # v1.1.2 关键修复：无条件读掉整个请求体再进路由。
         # 背景：/api/inbox/import 不消费 body，而页面 POST 时发了 '{}'；
@@ -943,7 +975,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             inbox_path = os.path.join(data_dir, INBOX_FILE)
             with WRITE_LOCK:
-                cur = parse_inbox(read_text(inbox_path)) or []
+                # v1.1.10 #1：损坏/超大的收件箱绝不能被「空列表」兜底。旧版
+                # parse_inbox(...) or [] 把「解析失败(None)」当「空」，于是 Spider
+                # POST 一条新来料就把整箱旧数据覆盖成 [新条目]——整箱丢失且回 200，
+                # 与同文件 /api/inbox/import 的既有修复自相矛盾。
+                # 现在：文件存在但读不动/解析不了 → 抛错回 500，一个字节都不写。
+                if os.path.isfile(inbox_path):
+                    if file_too_large(inbox_path):
+                        raise ValueError('inbox file is too large')
+                    cur = parse_inbox(read_text(inbox_path))
+                    if cur is None:
+                        raise ValueError('inbox file is corrupted')
+                else:
+                    cur = []
                 added, updated, skipped = [], [], []
                 for it in valid:
                     idx = next((i for i, x in enumerate(cur)
