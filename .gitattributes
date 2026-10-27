@@ -1,5 +1,9 @@
 # 默认：文本文件统一以 LF 存储与检出，避免 Windows autocrlf 把 LF 源文件洗成 CRLF
 * text=auto eol=lf
 
-# FL Spider 单文件必须保持 CRLF（项目纪律），按二进制原样处理，仓库与检出均不改行尾
-fl-crawler/FL Spider.user.js binary
+# FL Spider 单文件必须保持 CRLF（项目纪律），按二进制原样处理，仓库与检出均不改行尾。
+# ⚠️ 坑：gitattributes 用空白分隔「模式」与「属性」，模式里含空格会被截断
+#    （`fl-crawler/FL Spider.user.js` 实际只匹配到 `fl-crawler/FL`，规则静默失效，
+#     实测 check-attr 仍返回 text=auto → 提交时被规范化成 LF，检出即丢 CRLF）。
+#    故这里用不含空格的通配模式。
+*Spider.user.js binary
