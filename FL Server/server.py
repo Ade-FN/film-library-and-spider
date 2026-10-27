@@ -23,7 +23,7 @@ from urllib.parse import urlparse, parse_qs, unquote, quote
 # v1.1.8（附录批次 6）：A-15 _send_file 分块流式（不再整文件读内存）/ A-16 对拍
 # Node error 监听 / A-17 配置 GBK 回退解码 / A-18 双端错误码对齐（400/403/404、
 # 码点序、损坏收件箱拒绝导入）/ A-19 原子写 fsync / A-20 socket 超时 + 负 CL 守卫。
-VERSION = '1.1.11'
+VERSION = '1.1.12'
 PORT_FIRST = 8787
 PORT_LAST = 8796
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -627,6 +627,24 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 if inbox_big or done_big:
                     st['oversize'] = {'inbox': inbox_big, 'archive': done_big}
+                # v1.1.12 #31：原子写 tmp 残留的只读报告（与 Node 主端一致，不自动删）
+                try:
+                    tmp_n = 0
+                    tmp_b = 0
+                    for _n in os.listdir(data_dir):
+                        if not re.match(r'^.*\.tmp-\d+-[0-9a-z]+$', _n):
+                            continue
+                        try:
+                            _s = os.stat(os.path.join(data_dir, _n))
+                            if os.path.isfile(os.path.join(data_dir, _n)):
+                                tmp_n += 1
+                                tmp_b += _s.st_size
+                        except Exception:
+                            pass
+                    if tmp_n:
+                        st['staleTmp'] = {'count': tmp_n, 'bytes': tmp_b}
+                except Exception:
+                    pass
             self._json(200, st)
             return
 
@@ -1018,6 +1036,12 @@ class Handler(BaseHTTPRequestHandler):
             with WRITE_LOCK:
                 # v1.1.8 A-18：收件箱/归档损坏时拒绝导入并保留原文件（旧版 `or []`
                 # 把损坏当空 → 归档后顺手清空收件箱 = 无声数据丢失）
+                # v1.1.12 #31：read_text 超 64MB 返回 None，而 parse_inbox(None) 是 []——
+                # 「读不动」被当成「空」，866MB 归档会被 merged 的「只剩新来料」整文件覆盖。
+                # 与 Node 主端同口径：存在但读不动 → 拒绝导入，一个字节都不写。
+                if os.path.isfile(inbox_path) and file_too_large(inbox_path):
+                    self._err(500, 'inbox file is too large')
+                    return
                 cur = parse_inbox(read_text(inbox_path))
                 if cur is None:
                     self._err(500, 'inbox file is corrupted')
@@ -1025,6 +1049,9 @@ class Handler(BaseHTTPRequestHandler):
                 archived = 0
                 if cur:
                     done_path = os.path.join(data_dir, INBOX_DONE)
+                    if os.path.isfile(done_path) and file_too_large(done_path):
+                        self._err(500, 'archive file is too large')
+                        return
                     old = parse_inbox(read_text(done_path))
                     if old is None:
                         self._err(500, 'archive file is corrupted')

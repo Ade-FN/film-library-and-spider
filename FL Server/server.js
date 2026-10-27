@@ -35,7 +35,7 @@ const { exec } = require('child_process');
 /* v1.1.8（附录批次 6）：A-15 对拍 Py 流式（见下 pipeFile）/ A-16 createReadStream
    error 监听 / A-17 配置文件 GBK 回退解码 / A-18 错误码与排序双端对齐 + 损坏
    收件箱拒绝导入 / A-19 原子写 fsync / A-20 闲置连接超时。 */
-const VERSION = '1.1.11';
+const VERSION = '1.1.12';
 const PORT_FIRST = 8787;
 const PORT_LAST = 8796;
 const HERE = __dirname;
@@ -455,6 +455,17 @@ const server = http.createServer(async (req, res) => {
           archive: (parseInbox(doneTxt) || []).length,
         };
         if (inboxBig || doneBig) st.oversize = { inbox: inboxBig, archive: doneBig };
+        /* v1.1.12 #31：原子写是「写 tmp → fsync → rename」。进程被强杀/崩溃时 rename
+           没执行，tmp 就永久留在数据目录里（实测一个进程留下 5 个、共 823MB）。
+           这里只报告不清理——删文件必须由用户确认。 */
+        try {
+          let tmpN = 0, tmpB = 0;
+          fs.readdirSync(dataDir).forEach(function (n) {
+            if (!/\.tmp-\d+-[0-9a-z]+$/.test(n)) return;
+            try { const s = fs.statSync(path.join(dataDir, n)); if (s.isFile()) { tmpN++; tmpB += s.size; } } catch (e) {}
+          });
+          if (tmpN) st.staleTmp = { count: tmpN, bytes: tmpB };
+        } catch (e) {}
       }
       sendJson(res, 200, st);
       return;
@@ -602,10 +613,16 @@ const server = http.createServer(async (req, res) => {
         /* v1.1.8 A-18：收件箱/归档文件损坏时拒绝导入并保留原文件。旧版 `|| []`
            把损坏当空——归档后顺手清空收件箱 = 无声数据丢失（GET /api/inbox
            早就对损坏回 500，唯独 import 这条最危险的路径静默成功）。 */
+        /* v1.1.12 #31：readText 超过 64MB 门限返回 null，而 parseInbox(null) 是 []——
+           「读不动」与「空」在调用方眼里完全一样。归档 866MB 时这里的 old 就成了 []，
+           merged 只剩本次新来料，一次导入把数百 MB 历史归档整文件覆盖掉（回 200 ok）。
+           与 #1 同款的静默丢失，只是发生在归档文件上。现在：存在但读不动 → 拒绝导入。 */
+        if (fs.existsSync(inboxPath) && fileTooLarge(inboxPath)) throw new Error('inbox file is too large');
         const cur = parseInbox(readText(inboxPath));
         if (cur === null) throw new Error('inbox file is corrupted');
         if (!cur.length) return { archived: 0 };
         const donePath = path.join(dataDir, INBOX_DONE);
+        if (fs.existsSync(donePath) && fileTooLarge(donePath)) throw new Error('archive file is too large');
         const old = parseInbox(readText(donePath));
         if (old === null) throw new Error('archive file is corrupted');
         const merged = dedupeInbox(old.concat(cur));
