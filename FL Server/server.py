@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import threading
+import time
 import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +24,7 @@ from urllib.parse import urlparse, parse_qs, unquote, quote
 # v1.1.8（附录批次 6）：A-15 _send_file 分块流式（不再整文件读内存）/ A-16 对拍
 # Node error 监听 / A-17 配置 GBK 回退解码 / A-18 双端错误码对齐（400/403/404、
 # 码点序、损坏收件箱拒绝导入）/ A-19 原子写 fsync / A-20 socket 超时 + 负 CL 守卫。
-VERSION = '1.1.12'
+VERSION = '1.1.13'
 PORT_FIRST = 8787
 PORT_LAST = 8796
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,6 +62,10 @@ WRITE_LOCK = threading.Lock()
 # 收件箱归档长期累积可达数百 MB（实测 866MB），整读会把数 GB 吃进内存，
 # 且与 Node 端「读不动就降级」的行为不一致。超过门限按读不到返回 None。
 MAX_TEXT_BYTES = 64 * 1024 * 1024
+# v1.1.13 #32：活跃归档封卷门限，必须小于 MAX_TEXT_BYTES（理由同 Node 端）
+ARCHIVE_MAX_BYTES = 32 * 1024 * 1024
+# v1.1.13 #33：超过 24h 的 tmp 才自愈清理
+TMP_STALE_SEC = 24 * 60 * 60
 
 
 def file_too_large(p):
@@ -274,6 +279,96 @@ def dedupe_inbox(items):
         if a > b or (a == b and digit_len(it.get('code')) > digit_len(cur.get('code'))):
             buckets[at[k]] = it
     return buckets
+
+
+# ---------- v1.1.13 #32：归档脱图（与 Node 主端同语义） ----------
+DATA_URL_RE = re.compile(r'^data:[a-z0-9.+-]+/[a-z0-9.+-]+;base64,', re.I)
+
+
+def _img_stub(name, s):
+    return {'name': name or '', 'stripped': True, 'bytes': len(s) if s else 0}
+
+
+def strip_archive_images(items):
+    out = []
+    for it in (items or []):
+        if not isinstance(it, dict):
+            out.append(it)
+            continue
+        o = dict(it)
+        c = o.get('cover')
+        if isinstance(c, str):
+            if DATA_URL_RE.match(c):
+                o['cover'] = _img_stub('cover', c)
+        elif isinstance(c, dict):
+            d = c.get('dataUrl') or c.get('data') or ''
+            if isinstance(d, str) and DATA_URL_RE.match(d):
+                o['cover'] = _img_stub(c.get('name'), d)
+        sh = o.get('shots')
+        if isinstance(sh, list):
+            ns = []
+            for s in sh:
+                if isinstance(s, str):
+                    ns.append(_img_stub('', s) if DATA_URL_RE.match(s) else s)
+                elif isinstance(s, dict):
+                    d2 = s.get('dataUrl') or s.get('data') or ''
+                    if isinstance(d2, str) and DATA_URL_RE.match(d2):
+                        ns.append(_img_stub(s.get('name'), d2))
+                    else:
+                        ns.append(s)
+                else:
+                    ns.append(s)
+            o['shots'] = ns
+        out.append(o)
+    return out
+
+
+def archive_payload(items):
+    return json.dumps({'app': 'Film Library', 'type': 'inbox-archive',
+                       'updatedAt': now_iso(), 'items': items},
+                      ensure_ascii=False, indent=2)
+
+
+def archive_volume_name():
+    return INBOX_DONE[:-5] + '_' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S') + '.json'
+
+
+# ---------- v1.1.13 #33：tmp 自愈（与 Node 主端同语义） ----------
+TMP_SWEEP = None
+
+
+def sweep_stale_tmp(data_dir):
+    res = {'removed': 0, 'bytes': 0, 'skipped': None}
+    if not data_dir:
+        return res
+    if os.path.isfile(os.path.join(data_dir, 'no-autoclean.txt')):
+        res['skipped'] = 'disabled'
+        return res
+    try:
+        names = os.listdir(data_dir)
+    except Exception:
+        res['skipped'] = 'unreadable'
+        return res
+    now = time.time()
+    for n in names:
+        if not re.search(r'\.tmp-\d+-[0-9a-z]+$', n):
+            continue
+        p = os.path.join(data_dir, n)
+        try:
+            st = os.stat(p)
+        except Exception:
+            continue
+        if not os.path.isfile(p):
+            continue
+        if now - st.st_mtime < TMP_STALE_SEC:
+            continue
+        try:
+            os.remove(p)
+            res['removed'] += 1
+            res['bytes'] += st.st_size
+        except Exception:
+            pass
+    return res
 
 
 def parse_inbox(txt):
@@ -645,6 +740,9 @@ class Handler(BaseHTTPRequestHandler):
                         st['staleTmp'] = {'count': tmp_n, 'bytes': tmp_b}
                 except Exception:
                     pass
+                if TMP_SWEEP and TMP_SWEEP.get('removed'):
+                    st['tmpSwept'] = {'removed': TMP_SWEEP['removed'], 'bytes': TMP_SWEEP['bytes']}
+                st['limits'] = {'archiveMaxBytes': ARCHIVE_MAX_BYTES, 'maxTextBytes': MAX_TEXT_BYTES}
             self._json(200, st)
             return
 
@@ -1047,6 +1145,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._err(500, 'inbox file is corrupted')
                     return
                 archived = 0
+                rotated = None
                 if cur:
                     done_path = os.path.join(data_dir, INBOX_DONE)
                     if os.path.isfile(done_path) and file_too_large(done_path):
@@ -1057,14 +1156,22 @@ class Handler(BaseHTTPRequestHandler):
                         self._err(500, 'archive file is corrupted')
                         return
                     
-                    merged = dedupe_inbox(old + cur)
-                    write_text_atomic(done_path, json.dumps(
-                        {'app': 'Film Library', 'type': 'inbox-archive',
-                         'updatedAt': now_iso(),
-                         'items': merged}, ensure_ascii=False, indent=2))
+                    old_s = strip_archive_images(old or [])
+                    cur_s = strip_archive_images(cur)
+                    payload = archive_payload(dedupe_inbox(old_s + cur_s))
+                    rotated_to = None
+                    if len(payload.encode('utf-8')) > ARCHIVE_MAX_BYTES:
+                        rotated_to = archive_volume_name()
+                        try:
+                            os.rename(done_path, os.path.join(data_dir, rotated_to))
+                        except Exception:
+                            rotated_to = None
+                        payload = archive_payload(dedupe_inbox(cur_s))
+                    write_text_atomic(done_path, payload)
                     write_text_atomic(inbox_path, inbox_payload([]))
                     archived = len(cur)
-            self._json(200, {'ok': True, 'archived': archived})
+                    rotated = rotated_to
+            self._json(200, {'ok': True, 'archived': archived, 'rotated': rotated})
             return
 
         if path == '/api/pending':
@@ -1104,6 +1211,10 @@ def main():
     url = 'http://127.0.0.1:%d/' % port
     print('[FL Server] v%s (python) listening on %s' % (VERSION, url))
     print('[FL Server] data dir: %s' % (get_data_dir() or '(not configured - set it in the page)'))
+    global TMP_SWEEP
+    TMP_SWEEP = sweep_stale_tmp(get_data_dir())
+    if TMP_SWEEP['removed']:
+        print('[FL Server] swept stale tmp: %d file(s), %.1f MB' % (TMP_SWEEP['removed'], TMP_SWEEP['bytes'] / 1048576.0))
     if not os.environ.get('FL_NO_OPEN'):
         try:
             webbrowser.open(url)

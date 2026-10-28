@@ -35,7 +35,7 @@ const { exec } = require('child_process');
 /* v1.1.8（附录批次 6）：A-15 对拍 Py 流式（见下 pipeFile）/ A-16 createReadStream
    error 监听 / A-17 配置文件 GBK 回退解码 / A-18 错误码与排序双端对齐 + 损坏
    收件箱拒绝导入 / A-19 原子写 fsync / A-20 闲置连接超时。 */
-const VERSION = '1.1.12';
+const VERSION = '1.1.13';
 const PORT_FIRST = 8787;
 const PORT_LAST = 8796;
 const HERE = __dirname;
@@ -81,6 +81,13 @@ const VIDEO_EXT = ['.mp4', '.webm', '.ogg', '.mov', '.mkv', '.avi', '.flv', '.ts
    超过门限按「读不到」返回 null，由调用方降级（见 /api/status 的 oversize 标记），
    绝不因为一个归档文件拖垮整个服务。 */
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
+/* v1.1.13 #32：活跃归档的封卷门限。必须小于 MAX_TEXT_BYTES——否则「封卷」
+   反而会产出一个自己都读不动的卷，与 #2 的读上限保护自相矛盾。 */
+const ARCHIVE_MAX_BYTES = 32 * 1024 * 1024;
+/* v1.1.13 #33：只有 mtime 超过 24h 的 tmp 才自愈清理。正在写 tmp 的进程
+   （含本进程）mtime 一定很新，凭 mtime 就能分开「在用」与「被强杀留下的」，
+   不需要判 PID——判 PID 反而漏掉别的机器上留下的孤儿。 */
+const TMP_STALE_MS = 24 * 60 * 60 * 1000;
 function fileTooLarge(p) {
   try { const st = fs.statSync(p); return !!st && st.isFile() && st.size > MAX_TEXT_BYTES; }
   catch (e) { return false; }
@@ -256,6 +263,71 @@ function dedupeInbox(items) {
     if (a > b || (a === b && digitLen(it.code) > digitLen(cur.code))) buckets[at[k]] = it;
   });
   return buckets;
+}
+
+/* ---------- v1.1.13 #32：归档脱图 ----------
+   归档是「只增不减」的历史存档，每条 item 都内联了原始 base64 图片（实测密度
+   99.8%：866MB 里 863MB 是图）。同一张图在主库里已另存 covers/*.jpg 只留路径，
+   归档里再存一份纯属冗余。脱图后只留 name + 字节数，保留可追溯性，体积回到 KB
+   量级。历史条目（旧版写进来的）同样处理，所以存量归档会在下次导入时自动瘦身。 */
+const DATA_URL_RE = /^data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,/i;
+function imgStub(name, s) {
+  return { name: name || '', stripped: true, bytes: s ? s.length : 0 };
+}
+function stripArchiveImages(items) {
+  return (items || []).map(function (it) {
+    if (!it || typeof it !== 'object') return it;
+    const o = Object.assign({}, it);
+    if (typeof o.cover === 'string') {
+      if (DATA_URL_RE.test(o.cover)) o.cover = imgStub('cover', o.cover);
+    } else if (o.cover && typeof o.cover === 'object') {
+      const d = (typeof o.cover.dataUrl === 'string' && o.cover.dataUrl) || (typeof o.cover.data === 'string' && o.cover.data) || '';
+      if (d && DATA_URL_RE.test(d)) o.cover = imgStub(o.cover.name, d);
+    }
+    if (Array.isArray(o.shots)) {
+      o.shots = o.shots.map(function (s) {
+        if (typeof s === 'string') return DATA_URL_RE.test(s) ? imgStub('', s) : s;
+        if (s && typeof s === 'object') {
+          const d2 = (typeof s.dataUrl === 'string' && s.dataUrl) || (typeof s.data === 'string' && s.data) || '';
+          if (d2 && DATA_URL_RE.test(d2)) return imgStub(s.name, d2);
+        }
+        return s;
+      });
+    }
+    return o;
+  });
+}
+function archivePayload(items) {
+  return JSON.stringify({ app: 'Film Library', type: 'inbox-archive', updatedAt: new Date().toISOString(), items: items }, null, 2);
+}
+function archiveVolumeName() {
+  const d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+  return INBOX_DONE.replace(/\.json$/, '') + '_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
+    '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.json';
+}
+
+/* ---------- v1.1.13 #33：tmp 自愈 ----------
+   原子写 tmp 的命名是「原名.tmp-<pid>-<随机>」，进程被强杀时 rename 没执行，
+   tmp 永久留在数据目录（实测一个进程留下 5 个、共 823MB）。启动时清一次：
+   只认这个命名、只清超过 24h 的。数据目录里放 no-autoclean.txt 即可永久关闭。 */
+let TMP_SWEEP = null;
+function sweepStaleTmp(dir) {
+  const res = { removed: 0, bytes: 0, skipped: null };
+  if (!dir) return res;
+  try { if (fs.existsSync(path.join(dir, 'no-autoclean.txt'))) { res.skipped = 'disabled'; return res; } } catch (e) {}
+  let names;
+  try { names = fs.readdirSync(dir); } catch (e) { res.skipped = 'unreadable'; return res; }
+  const now = Date.now();
+  names.forEach(function (n) {
+    if (!/\.tmp-\d+-[0-9a-z]+$/.test(n)) return;
+    const p = path.join(dir, n);
+    let st;
+    try { st = fs.statSync(p); } catch (e) { return; }
+    if (!st.isFile()) return;
+    if (now - st.mtimeMs < TMP_STALE_MS) return;
+    try { fs.unlinkSync(p); res.removed++; res.bytes += st.size; } catch (e) {}
+  });
+  return res;
 }
 /* 收件箱文件兼容两种历史形态：{items:[...]} 或裸数组 */
 function parseInbox(txt) {
@@ -466,6 +538,8 @@ const server = http.createServer(async (req, res) => {
           });
           if (tmpN) st.staleTmp = { count: tmpN, bytes: tmpB };
         } catch (e) {}
+        if (TMP_SWEEP && TMP_SWEEP.removed) st.tmpSwept = { removed: TMP_SWEEP.removed, bytes: TMP_SWEEP.bytes };
+        st.limits = { archiveMaxBytes: ARCHIVE_MAX_BYTES, maxTextBytes: MAX_TEXT_BYTES };
       }
       sendJson(res, 200, st);
       return;
@@ -625,12 +699,21 @@ const server = http.createServer(async (req, res) => {
         if (fs.existsSync(donePath) && fileTooLarge(donePath)) throw new Error('archive file is too large');
         const old = parseInbox(readText(donePath));
         if (old === null) throw new Error('archive file is corrupted');
-        const merged = dedupeInbox(old.concat(cur));
-        writeTextAtomic(donePath, JSON.stringify({ app: 'Film Library', type: 'inbox-archive', updatedAt: new Date().toISOString(), items: merged }, null, 2));
+        const oldS = stripArchiveImages(old || []);
+        const curS = stripArchiveImages(cur);
+        let payload = archivePayload(dedupeInbox(oldS.concat(curS)));
+        let rotatedTo = null;
+        if (Buffer.byteLength(payload, 'utf8') > ARCHIVE_MAX_BYTES) {
+          rotatedTo = archiveVolumeName();
+          try { fs.renameSync(donePath, path.join(dataDir, rotatedTo)); }
+          catch (e) { rotatedTo = null; }
+          payload = archivePayload(dedupeInbox(curS));
+        }
+        writeTextAtomic(donePath, payload);
         writeTextAtomic(inboxPath, inboxPayload([]));
-        return { archived: cur.length };
+        return { archived: cur.length, rotated: rotatedTo };
       });
-      sendJson(res, 200, { ok: true, archived: r.archived });
+      sendJson(res, 200, { ok: true, archived: r.archived, rotated: r.rotated || null });
       return;
     }
     if (pathname === '/api/inbox') {
@@ -813,6 +896,8 @@ listen().then(({ port }) => {
   const u = 'http://127.0.0.1:' + port + '/';
   console.log('[FL Server] v' + VERSION + ' (node) listening on ' + u);
   console.log('[FL Server] data dir: ' + (getDataDir() || '(not configured - set it in the page)'));
+  TMP_SWEEP = sweepStaleTmp(getDataDir());
+  if (TMP_SWEEP && TMP_SWEEP.removed) console.log('[FL Server] swept stale tmp: ' + TMP_SWEEP.removed + ' file(s), ' + (TMP_SWEEP.bytes / 1048576).toFixed(1) + ' MB');
   openBrowser(u);
 }).catch(e => {
   console.error('[FL Server] failed to start: ' + String((e && e.message) || e));
