@@ -12,7 +12,7 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.37';
+  var APP_VERSION = '2.1.38';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
@@ -25,8 +25,11 @@
      · cvMax  ：封面宽上限，防止超宽屏把卡片撑得过高
      · h      ：仅作初始值与兜底，实际高度由 geom() 按封面高度 (cvW×1.5) 现算，
                 行高 rowH 同步走动态值——虚拟滚动靠它算，写死就会错位。 */
-  var CARD = { w: 340, h: 150, gap: 12, pad: 12, minW: 260, k: 100 / 340, cvMax: 200 };
-  var CARD_C = { w: 272, h: 108, gap: 8, pad: 8, minW: 200, k: 72 / 272, cvMax: 140 };
+  /* v2.1.38：封面 30%(100/340) -> 40%，卡片随之变高（h = cvW * 1.5，封面恒定 2:3）。
+     h 必须与 k 对齐：340*0.4=136 -> 136*1.5=204；紧凑 272*0.32=87 -> 87*1.5=131。
+     改 k 不改 h 会让 VS.rowH 初值与实测值不符（首屏错位一行的高度）。 */
+  var CARD = { w: 340, h: 204, gap: 12, pad: 12, minW: 260, k: 0.4, cvMax: 260 };
+  var CARD_C = { w: 272, h: 131, gap: 8, pad: 8, minW: 200, k: 0.32, cvMax: 190 };
   var ROW_H = 34;
   /* v2.1.29 A-11：表格 sticky 表头高度。滚动总量必须算上它——旧版 spacer 只按
      行数×ROW_H 估，末行永远差一截滚不到（实测 thead≈37px）。render 先用此默认值，
@@ -637,12 +640,17 @@
          此时 cols 被兜成 1 而 w 仍为负 → --card-w/--card-h 负值、rowH<=0，
          paint 的守卫直接 return，卡片区彻底画不出来。几何不可用即返回 null。 */
       if (!(avail > 0)) return null;
-      /* 目标一行 3 张并铺满整行：先按 3 列反推卡宽，低于 minW 才退列数；
+      /* v2.1.38：目标列数 3 -> 4（对齐设计稿的「4 列卡片网格」）。
+         为什么必须同时改列数：封面提到 40% 后卡高 = 卡宽 × 0.4 × 1.5，
+         卡宽越大卡片越高——3 列时卡宽 390 → 卡高 234px，一屏只剩约 6 张。
+         改 4 列后卡宽 286 → 卡高 171px（≈ 设计稿的 176px），一屏约 10 张。
          卡宽一律由「可用宽 - 列间距」均分得到，不封顶 → 任何宽度下都填满、左右不留白。
-         封面 100×150（紧凑 72×108）恒定，宽出来的部分全给右侧文本列。 */
-      var cols = 3;
-      if (Math.floor((avail - 2 * g.gap) / 3) < g.minW) {
-        cols = Math.max(1, Math.floor((avail + g.gap) / (g.w + g.gap)));
+         封面 2:3 恒定（宽 = 卡宽 × k，上限 cvMax；高 = 宽 × 1.5）。 */
+      var cols = 4;
+      if (Math.floor((avail - 3 * g.gap) / 4) < g.minW) {
+        /* 兜底必须按 minW 反推列数：旧版按 g.w(340) 反推，窄屏时会从 4 列
+           直接跳到 2 列（中间空一档），按 minW 才是逐档递减。 */
+        cols = Math.max(1, Math.min(4, Math.floor((avail + g.gap) / (g.minW + g.gap))));
       }
       var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
@@ -655,6 +663,16 @@
       var vp = $('#vsViewport'), sp = $('#vsSpacer'), ct = $('#vsContent');
       $('#emptyTip').hidden = rows.length > 0;
       $('#tabCountHome').textContent = String(state.rows.length);
+      /* v2.1.38：大标题下的等宽统计行。放在 geom() 守卫之前——视口隐藏时
+         也要更新，否则切回主页会看到上一页的旧数字。 */
+      var sShown = $('#statShown'), sAll = $('#statAll'), sShots = $('#statShots');
+      if (sShown) sShown.textContent = String(rows.length);
+      if (sAll) sAll.textContent = String(state.rows.length);
+      if (sShots) {
+        var shotsN = 0;
+        for (var si = 0; si < rows.length; si++) shotsN += (rows[si].shots || []).length;
+        sShots.textContent = String(shotsN);
+      }
       if (state.view === 'table') {
         var g2 = { cols: 1, rowH: ROW_H, pad: 0 };
         VS.cols = 1; VS.rowH = ROW_H; VS.pad = 0;
@@ -1731,6 +1749,10 @@
   }
   function bindView() {
     $('#addBtn').addEventListener('click', function () { openForm(null); });
+    /* v2.1.38：大标题区的「添加影片」与左栏工具区的「＋ 新增」同源，
+       不复用 #addBtn 的 DOM（两个同 id 不合法），直接各自调 openForm。 */
+    var addTop = $('#addBtnTop');
+    if (addTop) addTop.addEventListener('click', function () { openForm(null); });
     $('#viewCardBtn').addEventListener('click', function () { setView('card'); });
     $('#viewTableBtn').addEventListener('click', function () { setView('table'); });
     $('#compactToggle').addEventListener('change', function () {

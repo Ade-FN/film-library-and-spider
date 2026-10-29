@@ -21,28 +21,48 @@
 <title>Film Library · 个人影片记录工作台</title>
 <style>
   :root{
-    --bg:#0d1520; --bg2:#111c2b; --card:#16222f; --card2:#1b2a3b;
-    --line:#24344a; --txt:#e5edf5; --muted:#8ba1b7;
-    --blue:#3b82f6; --blue-d:#2563eb; --green:#10b981; --green-d:#059669;
+    /* v2.1.38 主题：深灰绿玻璃 + 铜橙主色（参考 Film-Library-影片库 设计稿）
+       主色 --copper：当前导航 / 主按钮 / 选中态 / 命中高亮 / 番号
+       次强调 --blue：只留给状态徽章（已下载），避免与铜橙撞色 */
+    --bg:#23262B; --bg2:#1B1D21; --bg3:#17191D;
+    --card:#1f2328; --card2:#262b31;
+    --line:rgba(124,146,134,.34);
+    --txt:#ECEDEF; --muted:#A7ADB0; --faint:#7E8588;
+    --copper:#B66D44; --copper-l:#E7A471; --copper-d:#965736; --copper-t:#E9C6B3;
+    --blue:#3b82f6; --blue-d:#2563eb; --blue-l:var(--copper-l);
+    --green:#10b981; --green-d:#059669;
     --red:#ef4444; --amber:#f59e0b;
-    --radius:12px;
+    --glass:rgba(255,255,255,.075); --glass-inner:rgba(255,255,255,.05);
+    --line-green:rgba(124,146,134,.34);
+    --radius:14px; --radius-lg:24px;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --navTop:12px; --navH:56px; /* v2.1.34 浮动吸顶导航：离顶留白 / 卡片实高（JS 实测覆写） */
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html{-webkit-text-size-adjust:100%;}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
-    background:var(--bg); color:var(--txt); line-height:1.6; min-height:100vh;
+    color:var(--txt); line-height:1.6; min-height:100vh;
     padding-bottom:env(safe-area-inset-bottom);
+    background:
+      radial-gradient(760px 440px at 18% 12%, rgba(86,112,98,.30), transparent 62%),
+      radial-gradient(880px 500px at 72% 38%, rgba(70,92,84,.24), transparent 58%),
+      radial-gradient(680px 460px at 42% 88%, rgba(96,120,108,.16), transparent 60%),
+      linear-gradient(180deg,#23262B 0%,#1B1D21 55%,#17191D 100%);
+    background-attachment:fixed;
   }
+  /* 两道模糊暗绿光弧：纯装饰，fixed 定位不随内容滚动、pointer-events:none 不挡交互 */
+  .arc{position:fixed;border-radius:50%;filter:blur(46px);pointer-events:none;z-index:0}
+  .arc.a1{width:640px;height:210px;left:-150px;top:22%;background:rgba(88,116,102,.22);transform:rotate(-9deg)}
+  .arc.a2{width:560px;height:180px;right:-170px;bottom:20%;background:rgba(74,96,88,.18);transform:rotate(13deg)}
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
   input,select,textarea{font-family:inherit;font-size:14px;color:var(--txt);background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;outline:none;width:100%;}
-  input:focus,select:focus,textarea:focus{border-color:var(--blue);}
+  input:focus,select:focus,textarea:focus{border-color:var(--copper);}
   img{max-width:100%;height:auto;}
   .wrap{max-width:min(1720px,97vw);margin:0 auto;padding:14px 16px 60px;}
 
   /* ---------- 顶栏 ---------- */
-  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0 14px;flex-wrap:wrap;}
+  .topbar{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;flex-wrap:wrap;}
   .brand{display:flex;align-items:baseline;gap:10px;}
   .brand h1{font-size:20px;font-weight:700;letter-spacing:.5px;}
   .brand .sub{font-size:12px;color:var(--muted);}
@@ -50,12 +70,12 @@
   .dirbar-inline .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);flex:none;}
   .dirbar-inline.on .dot{background:var(--green);box-shadow:0 0 6px var(--green);}
   .dirbar-inline .dpath{max-width:46vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
-  .dirbar-inline .dpath b{color:#7dd3fc;font-weight:600;}
+  .dirbar-inline .dpath b{color:var(--copper-l);font-weight:600;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:9px 14px;font-size:13.5px;min-height:40px;transition:.15s;}
   .btn:hover{border-color:var(--muted);}
   .btn.sm{padding:6px 11px;font-size:12.5px;min-height:34px;}
-  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
-  .btn.primary:hover{background:var(--blue-d);}
+  .btn.primary{background:linear-gradient(180deg,rgba(182,109,68,.30),rgba(182,109,68,.12));border-color:rgba(182,109,68,.48);color:#F2D8CA;}
+  .btn.primary:hover{background:linear-gradient(180deg,rgba(182,109,68,.44),rgba(182,109,68,.20));border-color:rgba(182,109,68,.70);}
   .btn.green{background:var(--green);border-color:var(--green);color:#04261b;font-weight:600;}
   .btn.green:hover{background:var(--green-d);color:#fff;}
   .btn.danger{background:transparent;border-color:rgba(239,68,68,.5);color:#fca5a5;}
@@ -67,9 +87,9 @@
   .mainTabs{position:sticky;top:var(--navTop);z-index:40;display:flex;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:7px 9px;margin-bottom:16px;box-shadow:0 10px 26px rgba(0,0,0,.38),0 2px 6px rgba(0,0,0,.2);}
   .mainTabs .tab{display:flex;align-items:center;gap:7px;padding:8px 14px;font-size:14.5px;color:var(--muted);border:1px solid transparent;border-radius:999px;transition:.15s;}
   .mainTabs .tab:hover{color:var(--txt);background:var(--card2);}
-  .mainTabs .tab.on{color:#7dd3fc;background:rgba(59,130,246,.16);border-color:rgba(59,130,246,.5);font-weight:600;}
+  .mainTabs .tab.on{color:var(--copper-l);background:rgba(182,109,68,.16);border-color:rgba(182,109,68,.42);font-weight:600;}
   .mainTabs .tab .n{background:var(--card2);border-radius:999px;padding:0 8px;font-size:12px;color:var(--muted);}
-  .mainTabs .tab.on .n{background:rgba(59,130,246,.26);color:#7dd3fc;}
+  .mainTabs .tab.on .n{background:rgba(182,109,68,.28);color:var(--copper-l);}
 
   /* ---------- 想看清单 ---------- */
 
@@ -88,20 +108,20 @@
   .chip-row{display:flex;flex-wrap:wrap;gap:6px;}
   .chip{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);font-size:12.5px;color:var(--muted);}
   .chip:hover{color:var(--txt);}
-  .chip.on{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.55);color:#60a5fa;}
+  .chip.on{background:rgba(182,109,68,.18);border-color:rgba(182,109,68,.55);color:var(--copper-l);}
   .stat-line{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:2px 0;}
   .stat-line b{color:var(--txt);font-weight:600;}
   .stat-bars{display:flex;flex-direction:column;gap:4px;margin-top:6px;}
   .stat-bar{display:flex;align-items:center;gap:7px;font-size:12px;}
   .stat-bar .t{flex:0 0 92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);}
   .stat-bar .b{flex:1;height:7px;background:var(--bg2);border-radius:4px;overflow:hidden;}
-  .stat-bar .b i{display:block;height:100%;background:var(--blue);border-radius:4px;}
+  .stat-bar .b i{display:block;height:100%;background:var(--copper);border-radius:4px;}
   .stat-bar .n{flex:0 0 30px;text-align:right;color:var(--muted);}
   .preset-row{display:flex;gap:6px;}
   .preset-row input{flex:1;}
   .preset-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .preset-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;}
-  .preset-item button{padding:2px 7px;border-radius:999px;font-size:12px;color:#7dd3fc;}
+  .preset-item button{padding:2px 7px;border-radius:999px;font-size:12px;color:var(--copper-l);}
   .preset-item .x{color:var(--muted);padding:2px 6px;}
   .preset-item .x:hover{color:var(--red);}
   .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
@@ -117,7 +137,7 @@
   .search-scope{flex:0 0 118px;width:118px;}
   .regex-toggle{flex:none;min-height:40px;padding:0 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);display:flex;align-items:center;}
   .regex-toggle:hover{color:var(--txt);}
-  .regex-toggle.on{background:rgba(59,130,246,.16);color:#60a5fa;border-color:rgba(59,130,246,.5);}
+  .regex-toggle.on{background:rgba(182,109,68,.18);color:var(--copper-l);border-color:rgba(182,109,68,.55);}
   .regex-hint{font-size:12px;color:var(--amber);display:none;width:100%;}
   .regex-hint.show{display:block;}
   .regex-hint.err{color:var(--red);}
@@ -125,16 +145,16 @@
   .q-help-btn:hover{color:var(--txt);border-color:var(--muted);}
   .q-help{display:none;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--muted);width:100%;}
   .q-help.show{display:block;line-height:1.9;}
-  .q-help code{background:var(--bg);border-radius:5px;padding:1px 6px;color:#7dd3fc;}
+  .q-help code{background:var(--bg);border-radius:5px;padding:1px 6px;color:var(--copper-l);}
 
   /* ---------- 视图条 + 虚拟滚动 ---------- */
   .view-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);}
   .view-bar .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
   .view-bar .seg button{padding:6px 13px;font-size:12.5px;color:var(--muted);}
-  .view-bar .seg button.on{background:rgba(59,130,246,.18);color:#60a5fa;}
+  .view-bar .seg button.on{background:rgba(182,109,68,.18);color:var(--copper-l);}
   .view-bar .switch{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);}
   .view-bar .switch b{font-weight:400;}
-  .vs-viewport{height:calc(100vh - 330px);min-height:380px;overflow-y:auto;overflow-x:hidden;position:relative;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg2);}
+  .vs-viewport{height:calc(100vh - 415px);min-height:380px;overflow-y:auto;overflow-x:hidden;position:relative;border:1px solid var(--line);border-radius:var(--radius);background:var(--glass);}
   .vs-spacer{position:relative;width:100%;}
   .vs-content{position:absolute;top:0;left:0;right:0;}
   .vs-cards{display:grid;gap:12px;padding:12px;}
@@ -148,32 +168,36 @@
   /* 收件箱来料条目（v2.1.6：原复用 .watch-item，随未看片单一起删了，改独立命名） */
   .inb-item{display:flex;align-items:center;gap:10px;background:rgba(13,21,32,.55);border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:13.5px;}
   .inb-item+.inb-item{margin-top:6px;}
-  .inb-code{font-weight:700;color:#7dd3fc;white-space:nowrap;}
+  .inb-code{font-weight:700;color:var(--copper-l);white-space:nowrap;}
   .inb-title{flex:1;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;transition:.15s;display:flex;}
-  .card:hover{border-color:#3b82f6aa;transform:translateY(-2px);}
-  .card.sel{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue);}
+  /* 静态磨砂：不用 backdrop-filter——916 部虚拟滚动时每层 blur 都要 GPU 重绘。
+     改用「半透明深色叠底 + 顶部内侧细高光」，观感接近玻璃但零 blur 开销。 */
+  .card{background:rgba(34,38,43,.74);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;cursor:pointer;position:relative;transition:.15s;display:flex;}
+  .card::before{content:"";position:absolute;top:0;left:12px;right:12px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.26),transparent);pointer-events:none;z-index:3;}
+  .card:hover{border-color:rgba(182,109,68,.68);transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.34);}
+  .card.sel{border-color:var(--copper);box-shadow:0 0 0 1px var(--copper);}
   /* 左栏封面：点它进大图预览（封面 + 截图，灯箱内连续翻页） */
   .card .cv{flex:0 0 var(--cv-w,100px);width:var(--cv-w,100px);height:100%;position:relative;background:var(--bg);overflow:hidden;cursor:zoom-in;}
   .compact .card .cv{flex:0 0 var(--cv-w,72px);width:var(--cv-w,72px);}
   .card .cv img{width:100%;height:100%;object-fit:cover;display:block;}
   .card .cv .nocover{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;}
   /* 右栏文本信息 */
-  .card .meta{flex:1 1 auto;min-width:0;padding:8px 10px;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+  .card .meta{flex:1 1 auto;min-width:0;padding:10px 12px;display:flex;flex-direction:column;gap:5px;overflow:hidden;}
   .card .r1{display:flex;align-items:center;gap:6px;min-width:0;padding-right:26px;}
-  .card .code{font-size:12.5px;font-weight:700;color:#7dd3fc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .code{font-size:13px;font-weight:700;color:var(--copper-l);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.2px;}
   .card .badges{display:flex;gap:4px;margin-left:auto;flex:0 0 auto;}
   .card .badge{font-size:10.5px;padding:1px 7px;border-radius:999px;}
   .badge.st-想看{background:rgba(245,158,11,.85);color:#1a1205;}
   .badge.st-已看{background:rgba(16,185,129,.85);color:#04261b;}
   .badge.st-未看{background:rgba(100,116,139,.8);color:#fff;}
   .badge.dl{background:rgba(59,130,246,.85);color:#fff;}
-  .card .ttl{font-size:12px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-  .card .r3,.card .r5,.card .r6{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .ttl{font-size:13px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .card .r3,.card .r5,.card .r6{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .r6{font-family:var(--mono);letter-spacing:.2px;}
   .card .r4{display:flex;gap:4px;overflow:hidden;}
-  .card .ctag{font-size:10.5px;line-height:16px;padding:0 6px;border-radius:4px;background:rgba(59,130,246,.14);color:#93c5fd;white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis;}
+  .card .ctag{font-size:10.5px;line-height:16px;padding:0 8px;border-radius:999px;background:rgba(182,109,68,.16);border:1px solid rgba(182,109,68,.36);color:var(--copper-t);white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis;}
   .card .ck{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:6px;border:1px solid #ffffff88;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;z-index:2;}
-  .card.sel .ck{background:var(--blue);border-color:var(--blue);}
+  .card.sel .ck{background:var(--copper);border-color:var(--copper);}
   /* 紧凑模式：右栏只留番号 / 标题 / 演员 */
   .compact .card .meta{padding:6px 8px;}
   .compact .card .r4,.compact .card .r5,.compact .card .r6{display:none;}
@@ -184,21 +208,30 @@
   .vs-table th{position:sticky;top:0;background:var(--card2);color:var(--muted);font-weight:600;text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:2;}
   .vs-table td{padding:6px 9px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
   .vs-table tr{cursor:pointer;}
-  .vs-table tr:hover td{background:rgba(59,130,246,.07);}
-  .vs-table tr.sel td{background:rgba(59,130,246,.13);}
-  .vs-table .c-code{color:#7dd3fc;font-weight:700;}
+  .vs-table tr:hover td{background:rgba(182,109,68,.09);}
+  .vs-table tr.sel td{background:rgba(182,109,68,.16);}
+  .vs-table .c-code{color:var(--copper-l);font-weight:700;}
   .vs-table .c-tags{color:var(--muted);}
   .vs-table .num{text-align:right;}
 
   .empty-tip{text-align:center;color:var(--muted);padding:50px 0;font-size:14px;}
 
+  /* ---------- v2.1.38 主页大标题区（参考设计稿：大标题 + 等宽统计行） ---------- */
+  .content-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:2px 4px 0;flex:none;}
+  .content-head h2{font-size:48px;font-weight:700;letter-spacing:-.5px;line-height:1;color:var(--txt);}
+  .content-head .sub{margin-top:9px;font-size:13px;color:var(--muted);}
+  .content-head .sub .mono{font-family:var(--mono);color:var(--txt);}
+  .head-actions{display:flex;gap:10px;flex:none;}
+  @media (max-width:1280px){.content-head h2{font-size:36px;}}
+  @media (max-width:780px){.content-head h2{font-size:30px;}.content-head{flex-direction:column;align-items:flex-start;gap:10px;}}
+
   /* ---------- 批量条 ---------- */
-  .bulk-bar{display:none;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--blue);border-radius:var(--radius);padding:9px 12px;font-size:12.5px;}
+  .bulk-bar{position:relative;display:none;align-items:center;gap:8px;flex-wrap:wrap;background:var(--card);border:1px solid var(--copper);border-radius:var(--radius);padding:9px 12px;font-size:12.5px;}
   .bulk-bar.show{display:flex;}
-  .bulk-bar .n{color:#7dd3fc;font-weight:700;}
+  .bulk-bar .n{color:var(--copper-l);font-weight:700;}
 
   /* ---------- 弹窗 ---------- */
-  .modal-mask{position:fixed;inset:0;background:rgba(4,10,18,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .modal-mask{position:fixed;inset:0;background:rgba(12,14,16,.74);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
   .modal-mask.show{display:flex;}
   .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;width:min(860px,96vw);max-height:92vh;overflow:auto;padding:20px 22px;}
   .modal.wide{width:min(1080px,96vw);}
@@ -213,7 +246,7 @@
   .act-field label{font-size:12px;color:var(--muted);}
   .act-field textarea{resize:vertical;min-height:64px;}
   .drop-zone{border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer;transition:.15s;}
-  .drop-zone:hover,.drop-zone.over{border-color:var(--blue);color:var(--txt);background:rgba(59,130,246,.06);}
+  .drop-zone:hover,.drop-zone.over{border-color:var(--copper);color:var(--txt);background:rgba(182,109,68,.07);}
   .prev-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
   .prev-row .pv{position:relative;width:74px;}
   .prev-row .pv img{width:74px;height:98px;object-fit:cover;border-radius:7px;border:1px solid var(--line);}
@@ -279,14 +312,14 @@
 
   /* toast */
   #toast{position:fixed;left:50%;top:20px;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;}
-  .toast-item{background:#1e293b;color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;max-width:86vw;box-shadow:0 8px 26px rgba(0,0,0,.4);border:1px solid #334155;}
+  .toast-item{background:rgba(34,37,42,.94);color:var(--txt);padding:10px 16px;border-radius:14px;font-size:13px;max-width:86vw;box-shadow:0 18px 40px rgba(0,0,0,.45);border:1px solid var(--line-green);}
   .toast-item.ok{background:#064e3b;border-color:#10b98166;}
   .toast-item.err{background:#5b1a1a;border-color:#ef444466;}
   .toast-item.warn{background:#42320a;border-color:#f59e0b66;}
 
   /* 迁移中占位 */
   .phase-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:44px 30px;text-align:center;color:var(--muted);line-height:2;}
-  .phase-card b{color:#7dd3fc;}
+  .phase-card b{color:var(--copper-l);}
 
   /* ---------- Video / Actor / Tag 三页（Phase 1b） ---------- */
   .p-layout{display:flex;gap:16px;align-items:flex-start;}
@@ -296,11 +329,11 @@
   .p-list{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:52vh;overflow:auto;}
   .p-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);cursor:pointer;font-size:13px;}
   .p-item:hover{border-color:var(--muted);}
-  .p-item.on{border-color:var(--blue);background:rgba(59,130,246,.12);}
+  .p-item.on{border-color:var(--copper);background:rgba(182,109,68,.14);}
   .p-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .p-item .cnt{color:var(--muted);font-size:12px;flex:none;}
   .gdot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;}
-  .gdot.f{background:#f472b6;} .gdot.m{background:#60a5fa;} .gdot.u{background:#94a3b8;}
+  .gdot.f{background:#f472b6;} .gdot.m{background:var(--copper-l);} .gdot.u{background:#94a3b8;}
   .p-empty{color:var(--muted);font-size:12.5px;padding:14px 10px;}
 
   /* Video 播放 */
@@ -310,13 +343,13 @@
   .v-ph{padding:26px 18px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.9;}
   .v-player.on .v-ph{display:none;}
   .v-now{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:10px;font-size:13px;}
-  .v-now .code{font-weight:700;color:#7dd3fc;}
+  .v-now .code{font-weight:700;color:var(--copper-l);}
   .v-now .t{color:var(--muted);max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .v-now .fn{color:var(--muted);font-size:12px;}
   .v-now .sp{flex:1;}
   .v-item-list{display:flex;flex-direction:column;gap:5px;margin-top:10px;max-height:44vh;overflow:auto;}
   .v-item{display:flex;align-items:center;gap:10px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);cursor:pointer;font-size:12.5px;}
-  .v-item.on{border-color:var(--blue);background:rgba(59,130,246,.12);}
+  .v-item.on{border-color:var(--copper);background:rgba(182,109,68,.14);}
   .v-item .v-thumb{width:44px;height:30px;border-radius:5px;overflow:hidden;background:var(--bg);flex:none;}
   .v-item .v-thumb img{width:100%;height:100%;object-fit:cover;}
   .v-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -336,7 +369,7 @@
   .ov-meta{color:var(--muted);font-size:11.5px;margin-top:3px;display:flex;gap:8px;}
   .ov-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
   .ov-stat{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:6px 13px;text-align:center;}
-  .ov-stat .v{display:block;font-weight:700;font-size:15px;color:#7dd3fc;}
+  .ov-stat .v{display:block;font-weight:700;font-size:15px;color:var(--copper-l);}
   .ov-stat .l{font-size:11.5px;color:var(--muted);}
   .act-avatar-row{display:flex;gap:14px;align-items:flex-start;margin:10px 0;}
   .act-avatar{width:88px;height:88px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;overflow:hidden;flex:none;}
@@ -394,15 +427,41 @@
     .detail-cover{width:100%;max-width:none;}
     .act-form{grid-template-columns:1fr;}
   }
+  /* ================= v2.1.38 玻璃材质层 =================
+     只挂在「容器层」：顶栏 / 导航卡 / 左栏块 / 主面板 / 批量条。
+     卡片本身不上 blur（见 .card 注释）。放样式表末尾是为了覆盖前面
+     .side-block / .mainTabs 等单类规则里的 background 与 border。
+     注意：本块刻意不写 position —— .mainTabs 依赖 sticky，写了会被覆盖。 */
+  .glass{
+    background:var(--glass);
+    border:1px solid var(--line-green);
+    backdrop-filter:blur(24px) saturate(128%);
+    -webkit-backdrop-filter:blur(24px) saturate(128%);
+    box-shadow:0 28px 56px rgba(0,0,0,.42), 0 8px 22px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.14);
+  }
+  .glass::before{
+    content:"";position:absolute;top:0;left:18px;right:18px;height:1px;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
+    pointer-events:none;z-index:1;
+  }
+  /* .vs-viewport 是滚动容器：absolute 的高光条会跟着内容一起滚，必须关掉 */
+  .vs-viewport.glass::before{display:none;}
+  .topbar.glass{border-radius:16px;}
+  .mainTabs.glass{border-radius:16px;}
+  .side-block.glass{border-radius:16px;position:relative;}
+  .vs-viewport.glass{border-radius:16px;}
+  .bulk-bar.glass{border-radius:16px;border-color:var(--copper);}
 </style>
 </head>
 <body>
+<div class="arc a1" aria-hidden="true"></div>
+<div class="arc a2" aria-hidden="true"></div>
 <div class="wrap">
   <!-- ================= 顶栏 ================= -->
-  <header class="topbar">
+  <header class="topbar glass">
     <div class="brand">
       <h1>Film Library</h1>
-      <span class="sub" id="appVer">v2.1.37 · 本地服务版</span>
+      <span class="sub" id="appVer">v2.1.38 · 本地服务版</span>
     </div>
     <div class="dirbar-inline" id="dirBar">
       <span class="dot"></span>
@@ -413,7 +472,7 @@
   </header>
 
   <!-- ================= 四块导航 ================= -->
-  <nav class="mainTabs" id="mainTabs">
+  <nav class="mainTabs glass" id="mainTabs">
     <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
     <button class="tab" data-tab="video">Video</button>
     <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
@@ -425,7 +484,7 @@
     <div class="layout">
       <aside id="topPanel">
         <!-- 视图切换（v2.1.10：原 div.view-bar 的内容整体迁入左栏） -->
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">视图</div>
           <div class="view-bar">
             <div class="seg">
@@ -437,12 +496,12 @@
           <label class="switch" style="margin-top:6px" title="FL Spider 抓取写入收件箱后自动导入主库，无需手动点「全部导入并归档」（v2.1.30）"><input type="checkbox" id="autoInboxToggle" style="width:auto"> <b>自动导入收件箱</b></label>
         </div>
         <!-- 库概况：默认折叠（details 不带 open 即折叠，点标题展开） -->
-        <details class="side-block" id="statBlock">
+        <details class="side-block glass" id="statBlock">
           <summary class="side-label">库概况</summary>
           <div class="stat-line"><span>总条目</span><b id="statFilms">0</b></div>
           <div class="stat-bars" id="statStatus"></div>
         </details>
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">状态</div>
           <div class="chip-row" id="statusChips">
             <button class="chip on" data-status="">全部</button>
@@ -451,9 +510,9 @@
             <button class="chip" data-status="已看">已看</button>
           </div>
         </div>
-        <div class="side-block"><div class="side-label">演员</div><select id="actorFilter"><option value="">全部演员</option></select></div>
-        <div class="side-block"><div class="side-label">标签</div><select id="tagFilter"><option value="">全部标签</option></select></div>
-        <div class="side-block">
+        <div class="side-block glass"><div class="side-label">演员</div><select id="actorFilter"><option value="">全部演员</option></select></div>
+        <div class="side-block glass"><div class="side-label">标签</div><select id="tagFilter"><option value="">全部标签</option></select></div>
+        <div class="side-block glass">
           <div class="side-label">待补全</div>
           <select id="missFilter">
             <option value="">不限</option>
@@ -462,7 +521,7 @@
             <option value="magnet">缺磁力</option>
           </select>
         </div>
-        <div class="side-block"><div class="side-label">排序</div>
+        <div class="side-block glass"><div class="side-label">排序</div>
           <select id="sortSelect">
             <option value="recent" selected>录入时间 ↓</option>
             <option value="recent_asc">录入时间 ↑</option>
@@ -472,7 +531,7 @@
             <option value="updated_asc">更新时间 ↑</option>
           </select>
         </div>
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">筛选预设</div>
           <div class="preset-row">
             <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
@@ -480,7 +539,7 @@
           </div>
           <div class="preset-list" id="presetList"></div>
         </div>
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">工具</div>
           <div class="tool-grid">
             <button class="btn sm primary" id="addBtn">＋ 新增</button>
@@ -499,6 +558,15 @@
       </aside>
 
       <div class="content">
+        <div class="content-head">
+          <div>
+            <h2>影片库</h2>
+            <p class="sub">当前显示 <span class="mono" id="statShown">0</span> 部 · 全部 <span class="mono" id="statAll">0</span> 部 · 截图 <span class="mono" id="statShots">0</span> 张</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn primary" id="addBtnTop">＋ 添加影片</button>
+          </div>
+        </div>
         <div class="search-row">
           <div class="search-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -525,14 +593,14 @@
           <div class="q-help" id="qHelp"></div>
         </div>
 
-        <div class="vs-viewport" id="vsViewport">
+        <div class="vs-viewport glass" id="vsViewport">
           <div class="vs-spacer" id="vsSpacer">
             <div class="vs-content" id="vsContent"></div>
           </div>
         </div>
         <div class="empty-tip" id="emptyTip" hidden>没有符合条件的影片</div>
 
-        <div class="bulk-bar" id="bulkBar">
+        <div class="bulk-bar glass" id="bulkBar">
           <span>已选 <span class="n" id="selCount">0</span> 部</span>
           <button class="btn sm" id="selAll">全选</button>
           <button class="btn sm" id="selNone">取消全选</button>
@@ -551,7 +619,7 @@
   <section id="pageVideo" hidden>
     <div class="p-layout">
       <aside class="p-side">
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">播放列表 · <span id="videoGroupCount">0</span> 组</div>
           <div class="chip-row" id="videoDims">
             <button class="chip on" data-dim="status">状态</button>
@@ -563,7 +631,7 @@
         </div>
       </aside>
       <div class="p-main">
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label"><span id="videoGroupName">播放列表</span> · <span id="videoItemCount">0</span> 部</div>
           <div class="v-player" id="videoPlayerBox">
             <video id="videoEl" controls playsinline preload="metadata"></video>
@@ -581,7 +649,7 @@
   <section id="pageActor" hidden>
     <div class="p-layout">
       <aside class="p-side">
-        <div class="side-block">
+        <div class="side-block glass">
           <div class="side-label">演员 · <span id="actorCount">0</span></div>
           <div class="tool-grid" style="margin-top:8px">
             <button class="btn sm" id="actorMergeBtn" title="查找并合并可能是同一人的重复演员">合并去重</button>
@@ -593,11 +661,11 @@
         </div>
       </aside>
       <div class="p-main">
-        <div class="side-block" id="actorOverview">
+        <div class="side-block glass" id="actorOverview">
           <div class="side-label">演员总览 · <span id="actorOvCount">0</span></div>
           <div id="actorOvBody"></div>
         </div>
-        <div class="side-block" id="actorProfile" hidden>
+        <div class="side-block glass" id="actorProfile" hidden>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <div class="side-label" id="actorFormTitle" style="margin:0">演员资料</div>
             <button class="btn sm" id="actorBackBtn">← 返回总览</button>
@@ -635,7 +703,7 @@
 
   <!-- ================= Tag 页 ================= -->
   <section id="pageTag" hidden>
-    <div class="side-block">
+    <div class="side-block glass">
       <div class="side-label">标签 · <span id="tagCount">0</span></div>
       <div class="tag-toolbar">
         <input id="tagSearch" placeholder="搜索标签" autocomplete="off">
@@ -856,7 +924,7 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.37';
+  var APP_VERSION = '2.1.38';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
@@ -869,8 +937,11 @@
      · cvMax  ：封面宽上限，防止超宽屏把卡片撑得过高
      · h      ：仅作初始值与兜底，实际高度由 geom() 按封面高度 (cvW×1.5) 现算，
                 行高 rowH 同步走动态值——虚拟滚动靠它算，写死就会错位。 */
-  var CARD = { w: 340, h: 150, gap: 12, pad: 12, minW: 260, k: 100 / 340, cvMax: 200 };
-  var CARD_C = { w: 272, h: 108, gap: 8, pad: 8, minW: 200, k: 72 / 272, cvMax: 140 };
+  /* v2.1.38：封面 30%(100/340) -> 40%，卡片随之变高（h = cvW * 1.5，封面恒定 2:3）。
+     h 必须与 k 对齐：340*0.4=136 -> 136*1.5=204；紧凑 272*0.32=87 -> 87*1.5=131。
+     改 k 不改 h 会让 VS.rowH 初值与实测值不符（首屏错位一行的高度）。 */
+  var CARD = { w: 340, h: 204, gap: 12, pad: 12, minW: 260, k: 0.4, cvMax: 260 };
+  var CARD_C = { w: 272, h: 131, gap: 8, pad: 8, minW: 200, k: 0.32, cvMax: 190 };
   var ROW_H = 34;
   /* v2.1.29 A-11：表格 sticky 表头高度。滚动总量必须算上它——旧版 spacer 只按
      行数×ROW_H 估，末行永远差一截滚不到（实测 thead≈37px）。render 先用此默认值，
@@ -1971,12 +2042,17 @@ function bindTag(){
          此时 cols 被兜成 1 而 w 仍为负 → --card-w/--card-h 负值、rowH<=0，
          paint 的守卫直接 return，卡片区彻底画不出来。几何不可用即返回 null。 */
       if (!(avail > 0)) return null;
-      /* 目标一行 3 张并铺满整行：先按 3 列反推卡宽，低于 minW 才退列数；
+      /* v2.1.38：目标列数 3 -> 4（对齐设计稿的「4 列卡片网格」）。
+         为什么必须同时改列数：封面提到 40% 后卡高 = 卡宽 × 0.4 × 1.5，
+         卡宽越大卡片越高——3 列时卡宽 390 → 卡高 234px，一屏只剩约 6 张。
+         改 4 列后卡宽 286 → 卡高 171px（≈ 设计稿的 176px），一屏约 10 张。
          卡宽一律由「可用宽 - 列间距」均分得到，不封顶 → 任何宽度下都填满、左右不留白。
-         封面 100×150（紧凑 72×108）恒定，宽出来的部分全给右侧文本列。 */
-      var cols = 3;
-      if (Math.floor((avail - 2 * g.gap) / 3) < g.minW) {
-        cols = Math.max(1, Math.floor((avail + g.gap) / (g.w + g.gap)));
+         封面 2:3 恒定（宽 = 卡宽 × k，上限 cvMax；高 = 宽 × 1.5）。 */
+      var cols = 4;
+      if (Math.floor((avail - 3 * g.gap) / 4) < g.minW) {
+        /* 兜底必须按 minW 反推列数：旧版按 g.w(340) 反推，窄屏时会从 4 列
+           直接跳到 2 列（中间空一档），按 minW 才是逐档递减。 */
+        cols = Math.max(1, Math.min(4, Math.floor((avail + g.gap) / (g.minW + g.gap))));
       }
       var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
@@ -1989,6 +2065,16 @@ function bindTag(){
       var vp = $('#vsViewport'), sp = $('#vsSpacer'), ct = $('#vsContent');
       $('#emptyTip').hidden = rows.length > 0;
       $('#tabCountHome').textContent = String(state.rows.length);
+      /* v2.1.38：大标题下的等宽统计行。放在 geom() 守卫之前——视口隐藏时
+         也要更新，否则切回主页会看到上一页的旧数字。 */
+      var sShown = $('#statShown'), sAll = $('#statAll'), sShots = $('#statShots');
+      if (sShown) sShown.textContent = String(rows.length);
+      if (sAll) sAll.textContent = String(state.rows.length);
+      if (sShots) {
+        var shotsN = 0;
+        for (var si = 0; si < rows.length; si++) shotsN += (rows[si].shots || []).length;
+        sShots.textContent = String(shotsN);
+      }
       if (state.view === 'table') {
         var g2 = { cols: 1, rowH: ROW_H, pad: 0 };
         VS.cols = 1; VS.rowH = ROW_H; VS.pad = 0;
@@ -4379,6 +4465,10 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
   }
   function bindView() {
     $('#addBtn').addEventListener('click', function () { openForm(null); });
+    /* v2.1.38：大标题区的「添加影片」与左栏工具区的「＋ 新增」同源，
+       不复用 #addBtn 的 DOM（两个同 id 不合法），直接各自调 openForm。 */
+    var addTop = $('#addBtnTop');
+    if (addTop) addTop.addEventListener('click', function () { openForm(null); });
     $('#viewCardBtn').addEventListener('click', function () { setView('card'); });
     $('#viewTableBtn').addEventListener('click', function () { setView('table'); });
     $('#compactToggle').addEventListener('change', function () {
