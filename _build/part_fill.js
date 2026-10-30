@@ -18,7 +18,8 @@ var LS_SITES_JD = 'wb_film_v2_sites_javdbfix';   // 一次性迁移标记：把�
 function getSites(){
   /* v2.1.4 修：lsSet 不做 JSON 序列化，数组直接 setItem 会被 coercion 成
      "[object Object],…" 字符串，下次读回来不是数组 → 用户改的资料来源从来不落盘。
-     这里显式 JSON.parse/lsSet 显式 JSON.stringify，与 presets/actors/tagMeta 的读写方式一致。 */
+     这里显式 JSON.parse/lsSet 显式 JSON.stringify，与 actors/tagMeta 的读写方式一致
+     （v2.1.40：筛选预设功能已移除，原注释所指的那份存储不再存在）。 */
   var s = null;
   try { s = JSON.parse(lsGet(LS.sites, 'null')) || null; } catch (e) { s = null; }
   if(!Array.isArray(s) || !s.length) s = DEFAULT_SITES.slice();

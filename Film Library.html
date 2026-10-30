@@ -117,13 +117,6 @@
   .stat-bar .b{flex:1;height:7px;background:var(--bg2);border-radius:4px;overflow:hidden;}
   .stat-bar .b i{display:block;height:100%;background:var(--copper);border-radius:4px;}
   .stat-bar .n{flex:0 0 30px;text-align:right;color:var(--muted);}
-  .preset-row{display:flex;gap:6px;}
-  .preset-row input{flex:1;}
-  .preset-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
-  .preset-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;}
-  .preset-item button{padding:2px 7px;border-radius:999px;font-size:12px;color:var(--copper-l);}
-  .preset-item .x{color:var(--muted);padding:2px 6px;}
-  .preset-item .x:hover{color:var(--red);}
   .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
   .tool-grid .btn{width:100%;}
 
@@ -518,7 +511,7 @@
   <nav class="mainTabs glass" id="mainTabs">
     <div class="nav-brand">
       <h1>Film Library</h1>
-      <span class="sub" id="appVer">v2.1.39 · 本地服务版</span>
+      <span class="sub" id="appVer">v2.1.40 · 本地服务版</span>
     </div>
     <div class="nav-center">
       <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
@@ -592,14 +585,6 @@
             <option value="updated">更新时间 ↓</option>
             <option value="updated_asc">更新时间 ↑</option>
           </select>
-        </div>
-        <div class="side-block glass hidden" id="presetBlock">
-          <div class="side-label">筛选预设</div>
-          <div class="preset-row">
-            <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
-            <button class="btn sm" id="presetSaveBtn">保存</button>
-          </div>
-          <div class="preset-list" id="presetList"></div>
         </div>
         <div class="side-block glass">
           <div class="side-label">工具</div>
@@ -979,11 +964,11 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.39';
+  var APP_VERSION = '2.1.40';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
-    presets: 'wb_film_v2_presets', lastBackup: 'wb_film_v2_lastbackup',
+    lastBackup: 'wb_film_v2_lastbackup',
     actors: 'wb_film_v2_actors', tagMeta: 'wb_film_v2_tagmeta', sites: 'wb_film_v2_sites',
     autoInbox: 'wb_film_v2_autoinbox'      // v2.1.30：收件箱自动导入开关（'0'=关，缺省开）
   };
@@ -2032,51 +2017,6 @@ function bindTag(){
   });
 }
 
-  /* ---- 筛选预设（localStorage） ---- */
-  function getPresets() {
-    try { return JSON.parse(lsGet(LS.presets, '[]')) || []; } catch (e) { return []; }
-  }
-  function setPresets(list) { lsSet(LS.presets, JSON.stringify(list)); renderPresets(); }
-  function filterSnapshot() {
-    var f = state.filter;
-    return { text: f.text, scope: f.scope, status: f.status, tag: f.tag, actor: f.actor, miss: f.miss.slice(), regex: f.regex, sort: f.sort };
-  }
-  function applyFilterSnapshot(s) {
-    /* BUG-24：撤销挂起的搜索防抖，否则预设会被上一次输入的延迟回调覆盖 */
-    if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
-    var f = state.filter;
-    f.text = s.text || ''; f.scope = s.scope || 'all'; f.status = s.status || '';
-    f.tag = s.tag || ''; f.actor = s.actor || ''; f.miss = (s.miss || []).slice();
-    /* v2.1.20：同步 #missFilter 下拉的可见值。此前只改 state 不改控件，
-       应用预设后下拉显示「不限」而实际按「缺封面」过滤，状态与行为不一致。 */
-    $('#missFilter').value = f.miss.length ? f.miss[0] : '';
-    f.regex = !!s.regex; f.sort = s.sort || 'recent';
-    $('#searchInput').value = f.text;
-    $('#searchScope').value = f.scope;
-    $('#sortSelect').value = f.sort;
-    $('#regexToggle').classList.toggle('on', f.regex);
-    resetRegexHint(f.regex);
-    refreshAll();
-  }
-  function renderPresets() {
-    var list = getPresets(), box = $('#presetList');
-    if (!list.length) { box.innerHTML = '<span style="font-size:12px;color:var(--muted)">保存当前筛选条件，下次一键复用</span>'; return; }
-    box.innerHTML = '';
-    list.forEach(function (p) {
-      var item = document.createElement('span');
-      item.className = 'preset-item';
-      var apply = document.createElement('button');
-      apply.textContent = p.name;
-      apply.title = '应用该预设';
-      apply.onclick = function () { applyFilterSnapshot(p.filter); toast('已应用预设「' + p.name + '」', 'ok'); };
-      var x = document.createElement('button');
-      x.className = 'x'; x.textContent = '✕'; x.title = '删除';
-      x.onclick = function () { setPresets(getPresets().filter(function (q) { return q.id !== p.id; })); };
-      item.appendChild(apply); item.appendChild(x);
-      box.appendChild(item);
-    });
-  }
-
   /* ==========================================================================
    * §5 虚拟滚动渲染（卡片 / 表格共用）
    * ======================================================================== */
@@ -2680,7 +2620,6 @@ function bindActor(){
     renderActorFilter();
     renderTagFilter();
     renderStats();
-    renderPresets();
     renderTabCounts();
     VS.render();
     renderBulk();
@@ -3770,7 +3709,8 @@ var LS_SITES_JD = 'wb_film_v2_sites_javdbfix';   // 一次性迁移标记：把�
 function getSites(){
   /* v2.1.4 修：lsSet 不做 JSON 序列化，数组直接 setItem 会被 coercion 成
      "[object Object],…" 字符串，下次读回来不是数组 → 用户改的资料来源从来不落盘。
-     这里显式 JSON.parse/lsSet 显式 JSON.stringify，与 presets/actors/tagMeta 的读写方式一致。 */
+     这里显式 JSON.parse/lsSet 显式 JSON.stringify，与 actors/tagMeta 的读写方式一致
+     （v2.1.40：筛选预设功能已移除，原注释所指的那份存储不再存在）。 */
   var s = null;
   try { s = JSON.parse(lsGet(LS.sites, 'null')) || null; } catch (e) { s = null; }
   if(!Array.isArray(s) || !s.length) s = DEFAULT_SITES.slice();
@@ -4520,15 +4460,6 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
       refreshAll();
     });
     $('#sortSelect').addEventListener('change', function () { state.filter.sort = this.value; refreshAll(); });
-    $('#presetSaveBtn').addEventListener('click', function () {
-      var name = $('#presetName').value.trim();
-      if (!name) { toast('先填预设名称', 'warn'); return; }
-      var list = getPresets().filter(function (p) { return p.name !== name; });
-      list.push({ id: 'p' + Date.now().toString(36), name: name, filter: filterSnapshot() });
-      setPresets(list);
-      $('#presetName').value = '';
-      toast('已保存预设「' + name + '」', 'ok');
-    });
   }
   function bindView() {
     $('#addBtn').addEventListener('click', function () { openForm(null); });

@@ -12,11 +12,11 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.39';
+  var APP_VERSION = '2.1.40';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
-    presets: 'wb_film_v2_presets', lastBackup: 'wb_film_v2_lastbackup',
+    lastBackup: 'wb_film_v2_lastbackup',
     actors: 'wb_film_v2_actors', tagMeta: 'wb_film_v2_tagmeta', sites: 'wb_film_v2_sites',
     autoInbox: 'wb_film_v2_autoinbox'      // v2.1.30：收件箱自动导入开关（'0'=关，缺省开）
   };
@@ -575,51 +575,6 @@
     }).join('');
   }
   /* @@PART:tag@@ */
-  /* ---- 筛选预设（localStorage） ---- */
-  function getPresets() {
-    try { return JSON.parse(lsGet(LS.presets, '[]')) || []; } catch (e) { return []; }
-  }
-  function setPresets(list) { lsSet(LS.presets, JSON.stringify(list)); renderPresets(); }
-  function filterSnapshot() {
-    var f = state.filter;
-    return { text: f.text, scope: f.scope, status: f.status, tag: f.tag, actor: f.actor, miss: f.miss.slice(), regex: f.regex, sort: f.sort };
-  }
-  function applyFilterSnapshot(s) {
-    /* BUG-24：撤销挂起的搜索防抖，否则预设会被上一次输入的延迟回调覆盖 */
-    if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
-    var f = state.filter;
-    f.text = s.text || ''; f.scope = s.scope || 'all'; f.status = s.status || '';
-    f.tag = s.tag || ''; f.actor = s.actor || ''; f.miss = (s.miss || []).slice();
-    /* v2.1.20：同步 #missFilter 下拉的可见值。此前只改 state 不改控件，
-       应用预设后下拉显示「不限」而实际按「缺封面」过滤，状态与行为不一致。 */
-    $('#missFilter').value = f.miss.length ? f.miss[0] : '';
-    f.regex = !!s.regex; f.sort = s.sort || 'recent';
-    $('#searchInput').value = f.text;
-    $('#searchScope').value = f.scope;
-    $('#sortSelect').value = f.sort;
-    $('#regexToggle').classList.toggle('on', f.regex);
-    resetRegexHint(f.regex);
-    refreshAll();
-  }
-  function renderPresets() {
-    var list = getPresets(), box = $('#presetList');
-    if (!list.length) { box.innerHTML = '<span style="font-size:12px;color:var(--muted)">保存当前筛选条件，下次一键复用</span>'; return; }
-    box.innerHTML = '';
-    list.forEach(function (p) {
-      var item = document.createElement('span');
-      item.className = 'preset-item';
-      var apply = document.createElement('button');
-      apply.textContent = p.name;
-      apply.title = '应用该预设';
-      apply.onclick = function () { applyFilterSnapshot(p.filter); toast('已应用预设「' + p.name + '」', 'ok'); };
-      var x = document.createElement('button');
-      x.className = 'x'; x.textContent = '✕'; x.title = '删除';
-      x.onclick = function () { setPresets(getPresets().filter(function (q) { return q.id !== p.id; })); };
-      item.appendChild(apply); item.appendChild(x);
-      box.appendChild(item);
-    });
-  }
-
   /* ==========================================================================
    * §5 虚拟滚动渲染（卡片 / 表格共用）
    * ======================================================================== */
@@ -845,7 +800,6 @@
     renderActorFilter();
     renderTagFilter();
     renderStats();
-    renderPresets();
     renderTabCounts();
     VS.render();
     renderBulk();
@@ -1749,15 +1703,6 @@
       refreshAll();
     });
     $('#sortSelect').addEventListener('change', function () { state.filter.sort = this.value; refreshAll(); });
-    $('#presetSaveBtn').addEventListener('click', function () {
-      var name = $('#presetName').value.trim();
-      if (!name) { toast('先填预设名称', 'warn'); return; }
-      var list = getPresets().filter(function (p) { return p.name !== name; });
-      list.push({ id: 'p' + Date.now().toString(36), name: name, filter: filterSnapshot() });
-      setPresets(list);
-      $('#presetName').value = '';
-      toast('已保存预设「' + name + '」', 'ok');
-    });
   }
   function bindView() {
     $('#addBtn').addEventListener('click', function () { openForm(null); });

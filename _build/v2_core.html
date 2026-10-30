@@ -117,13 +117,6 @@
   .stat-bar .b{flex:1;height:7px;background:var(--bg2);border-radius:4px;overflow:hidden;}
   .stat-bar .b i{display:block;height:100%;background:var(--copper);border-radius:4px;}
   .stat-bar .n{flex:0 0 30px;text-align:right;color:var(--muted);}
-  .preset-row{display:flex;gap:6px;}
-  .preset-row input{flex:1;}
-  .preset-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
-  .preset-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;}
-  .preset-item button{padding:2px 7px;border-radius:999px;font-size:12px;color:var(--copper-l);}
-  .preset-item .x{color:var(--muted);padding:2px 6px;}
-  .preset-item .x:hover{color:var(--red);}
   .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
   .tool-grid .btn{width:100%;}
 
@@ -592,14 +585,6 @@
             <option value="updated">更新时间 ↓</option>
             <option value="updated_asc">更新时间 ↑</option>
           </select>
-        </div>
-        <div class="side-block glass hidden" id="presetBlock">
-          <div class="side-label">筛选预设</div>
-          <div class="preset-row">
-            <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
-            <button class="btn sm" id="presetSaveBtn">保存</button>
-          </div>
-          <div class="preset-list" id="presetList"></div>
         </div>
         <div class="side-block glass">
           <div class="side-label">工具</div>
