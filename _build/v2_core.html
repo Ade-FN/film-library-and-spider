@@ -451,38 +451,100 @@
   .side-block.glass{border-radius:16px;position:relative;}
   .vs-viewport.glass{border-radius:16px;}
   .bulk-bar.glass{border-radius:16px;border-color:var(--copper);}
+
+  /* ================= v2.1.39 上中下三栏纵向布局 ================= */
+  /* ---- 上栏：sticky 吸顶通栏玻璃导航（左品牌 / 中导航 / 右数据目录） ---- */
+  .mainTabs{position:sticky;top:var(--navTop);z-index:40;display:grid;grid-template-columns:minmax(160px,1fr) auto minmax(200px,1fr);align-items:center;gap:16px;padding:10px 16px;margin-bottom:14px;border-radius:16px;}
+  .nav-brand{display:flex;flex-direction:column;line-height:1.25;min-width:0;}
+  .nav-brand h1{font-size:16px;font-weight:700;letter-spacing:.2px;white-space:nowrap;}
+  .nav-brand .sub{font-size:10.5px;color:var(--faint);}
+  .nav-center{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+  .nav-right{display:flex;align-items:center;justify-content:flex-end;min-width:0;}
+  .nav-right .dirbar-inline{flex-wrap:nowrap;min-width:0;}
+  .nav-right .dpath{max-width:26vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  @media (max-width:1100px){
+    .mainTabs{grid-template-columns:1fr auto;row-gap:10px;}
+    .nav-right{grid-column:1 / -1;justify-content:flex-start;}
+    .nav-center{justify-content:flex-start;}
+  }
+  /* ---- 中栏：搜索条 ---- */
+  .search-row{gap:10px;flex-wrap:nowrap;}
+  .search-box input{padding-left:34px;padding-right:34px;}
+  .sb-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:20px;height:20px;padding:0;border:none;border-radius:50%;background:rgba(255,255,255,.1);color:var(--muted);font-size:13px;line-height:1;display:none;align-items:center;justify-content:center;}
+  .search-box input:not(:placeholder-shown) ~ .sb-clear{display:flex;}
+  .sb-clear:hover{background:rgba(255,255,255,.2);color:var(--txt);}
+  .sb-search{flex:none;min-height:40px;padding:0 22px;font-weight:600;}
+  .regex-toggle.mono{font-family:var(--mono);letter-spacing:.4px;font-size:12px;}
+  /* 「搜索范围」下拉：UI 移除、功能保留（DOM 与 change 监听原样保留，值恒为 all） */
+  .search-scope{display:none;}
+  .hidden{display:none !important;}
+  /* ---- 下栏：Split View（左悬浮侧栏 / 中可拖拽分隔条 / 右玻璃主面板） ---- */
+  .layout{display:flex;gap:0;align-items:flex-start;}
+  #topPanel{flex:0 0 var(--split-w,264px);width:var(--split-w,264px);}
+  .split-handle{flex:0 0 16px;width:16px;align-self:stretch;cursor:col-resize;position:relative;background:transparent;}
+  .split-handle::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:48px;border-radius:2px;background:var(--line-green);transition:.15s;}
+  .split-handle:hover::after,.split-handle.drag::after{background:var(--copper);height:104px;width:3px;}
+  .side-actions{display:flex;flex-direction:column;gap:8px;}
+  .side-actions .blk{width:100%;justify-content:center;}
+  .side-actions .btn.sm{background:rgba(255,255,255,.05);}
+  @media (max-width:980px){
+    .layout{flex-direction:column;gap:16px;}
+    #topPanel{flex:1 1 auto;width:100%;position:static;max-height:none;}
+    .split-handle{display:none;}
+  }
+  /* 大标题删除后视口相应变高（原 415px 含 content-head 约 76px） */
+  .vs-viewport{height:calc(100vh - 340px);}
+  /* ---- 卡片：圆角 24 / 内部左右 5:5 分栏 ---- */
+  .vs-card,.card{border-radius:var(--radius-lg);}
+  .card::before{left:22px;right:22px;}
+  .card .cv{border-right:1px solid var(--line-green);}
+  .card .cv .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:linear-gradient(165deg,#2d3330,#24282b 58%,#1d2023);}
+  .card .cv .ph svg{width:26px;height:26px;opacity:.62;}
+  .card .cv .ph span{font-size:10.5px;letter-spacing:2px;color:var(--faint);}
+  .card .meta{padding:14px;gap:9px;justify-content:center;}
+  .card .r1{padding-right:0;gap:8px;}
+  .card .code{font-family:var(--mono);font-size:12.5px;}
+  .card .ttl{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-line-clamp:none;}
+  .card .r3{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .r3 .mono{font-family:var(--mono);}
 </style>
 </head>
 <body>
 <div class="arc a1" aria-hidden="true"></div>
 <div class="arc a2" aria-hidden="true"></div>
 <div class="wrap">
-  <!-- ================= 顶栏 ================= -->
-  <header class="topbar glass">
-    <div class="brand">
-      <h1>Film Library</h1>
-      <span class="sub" id="appVer">v@@APP_VER@@ · 本地服务版</span>
-    </div>
-    <div class="dirbar-inline" id="dirBar">
-      <span class="dot"></span>
-      <span class="dpath" id="dirPath">未连接数据目录</span>
-      <span id="dirCounts" class="sub"></span>
-      <button class="btn sm" id="btnChangeDir">设置数据目录</button>
-    </div>
-  </header>
 
   <!-- ================= 四块导航 ================= -->
   <nav class="mainTabs glass" id="mainTabs">
-    <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
-    <button class="tab" data-tab="video">Video</button>
-    <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
-    <button class="tab" data-tab="tag">Tag <span class="n" id="tabCountTag">0</span></button>
+    <div class="nav-brand">
+      <h1>Film Library</h1>
+      <span class="sub" id="appVer">v@@APP_VER@@ · 本地服务版</span>
+    </div>
+    <div class="nav-center">
+      <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
+      <button class="tab" data-tab="video">Video</button>
+      <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
+      <button class="tab" data-tab="tag">Tag <span class="n" id="tabCountTag">0</span></button>
+    </div>
+    <div class="nav-right">
+      <div class="dirbar-inline" id="dirBar">
+        <span class="dot"></span>
+        <span class="dpath" id="dirPath">未连接数据目录</span>
+        <span id="dirCounts" class="sub"></span>
+        <button class="btn sm" id="btnChangeDir">设置数据目录</button>
+      </div>
+    </div>
   </nav>
 
   <!-- ================= 主页 ================= -->
   <section id="pageHome">
     <div class="layout">
       <aside id="topPanel">
+        <div class="side-block glass side-actions">
+          <button class="btn primary blk" id="addBtnTop">＋ 添加影片</button>
+          <button class="btn sm blk" id="viewSwitchBtn">切换视图：表格</button>
+          <button class="btn sm blk" id="panelFoldBtn">◀ 收起侧栏</button>
+        </div>
         <!-- 视图切换（v2.1.10：原 div.view-bar 的内容整体迁入左栏） -->
         <div class="side-block glass">
           <div class="side-label">视图</div>
@@ -531,7 +593,7 @@
             <option value="updated_asc">更新时间 ↑</option>
           </select>
         </div>
-        <div class="side-block glass">
+        <div class="side-block glass hidden" id="presetBlock">
           <div class="side-label">筛选预设</div>
           <div class="preset-row">
             <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
@@ -556,21 +618,14 @@
           </div>
         </div>
       </aside>
+      <div class="split-handle" id="splitHandle" title="拖动调整侧栏宽度（双击复位）"></div>
 
       <div class="content">
-        <div class="content-head">
-          <div>
-            <h2>影片库</h2>
-            <p class="sub">当前显示 <span class="mono" id="statShown">0</span> 部 · 全部 <span class="mono" id="statAll">0</span> 部 · 截图 <span class="mono" id="statShots">0</span> 张</p>
-          </div>
-          <div class="head-actions">
-            <button class="btn primary" id="addBtnTop">＋ 添加影片</button>
-          </div>
-        </div>
         <div class="search-row">
           <div class="search-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input id="searchInput" placeholder="搜索：番号 / 标题 / 演员 / 标签 / 备注 / 系列 / 导演 / 发行商 / 来源 / 影片日期，支持 字段:值 -排除 "短语" a|b" autocomplete="off">
+            <button class="sb-clear" id="searchClear" title="清空">×</button>
           </div>
           <select id="searchScope" class="search-scope" title="搜索范围">
             <option value="all">全部字段</option>
@@ -586,9 +641,9 @@
             <option value="platform">仅来源</option>
             <option value="release">仅影片日期</option>
           </select>
-          <button class="regex-toggle" id="regexToggle" title="正则模式">正则</button>
+          <button class="btn primary sb-search" id="btnSearch">搜索</button>
+          <button class="regex-toggle mono" id="regexToggle" title="正则模式（整个输入作为正则匹配）">RegExp</button>
           <button class="q-help-btn" id="qHelpBtn" title="搜索语法帮助">?</button>
-          <button class="btn sm" id="searchClear">清空</button>
           <div class="regex-hint" id="regexHint">正则模式：整个输入作为正则匹配（非法正则视为无结果）</div>
           <div class="q-help" id="qHelp"></div>
         </div>

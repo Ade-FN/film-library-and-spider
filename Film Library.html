@@ -451,38 +451,100 @@
   .side-block.glass{border-radius:16px;position:relative;}
   .vs-viewport.glass{border-radius:16px;}
   .bulk-bar.glass{border-radius:16px;border-color:var(--copper);}
+
+  /* ================= v2.1.39 上中下三栏纵向布局 ================= */
+  /* ---- 上栏：sticky 吸顶通栏玻璃导航（左品牌 / 中导航 / 右数据目录） ---- */
+  .mainTabs{position:sticky;top:var(--navTop);z-index:40;display:grid;grid-template-columns:minmax(160px,1fr) auto minmax(200px,1fr);align-items:center;gap:16px;padding:10px 16px;margin-bottom:14px;border-radius:16px;}
+  .nav-brand{display:flex;flex-direction:column;line-height:1.25;min-width:0;}
+  .nav-brand h1{font-size:16px;font-weight:700;letter-spacing:.2px;white-space:nowrap;}
+  .nav-brand .sub{font-size:10.5px;color:var(--faint);}
+  .nav-center{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+  .nav-right{display:flex;align-items:center;justify-content:flex-end;min-width:0;}
+  .nav-right .dirbar-inline{flex-wrap:nowrap;min-width:0;}
+  .nav-right .dpath{max-width:26vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  @media (max-width:1100px){
+    .mainTabs{grid-template-columns:1fr auto;row-gap:10px;}
+    .nav-right{grid-column:1 / -1;justify-content:flex-start;}
+    .nav-center{justify-content:flex-start;}
+  }
+  /* ---- 中栏：搜索条 ---- */
+  .search-row{gap:10px;flex-wrap:nowrap;}
+  .search-box input{padding-left:34px;padding-right:34px;}
+  .sb-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:20px;height:20px;padding:0;border:none;border-radius:50%;background:rgba(255,255,255,.1);color:var(--muted);font-size:13px;line-height:1;display:none;align-items:center;justify-content:center;}
+  .search-box input:not(:placeholder-shown) ~ .sb-clear{display:flex;}
+  .sb-clear:hover{background:rgba(255,255,255,.2);color:var(--txt);}
+  .sb-search{flex:none;min-height:40px;padding:0 22px;font-weight:600;}
+  .regex-toggle.mono{font-family:var(--mono);letter-spacing:.4px;font-size:12px;}
+  /* 「搜索范围」下拉：UI 移除、功能保留（DOM 与 change 监听原样保留，值恒为 all） */
+  .search-scope{display:none;}
+  .hidden{display:none !important;}
+  /* ---- 下栏：Split View（左悬浮侧栏 / 中可拖拽分隔条 / 右玻璃主面板） ---- */
+  .layout{display:flex;gap:0;align-items:flex-start;}
+  #topPanel{flex:0 0 var(--split-w,264px);width:var(--split-w,264px);}
+  .split-handle{flex:0 0 16px;width:16px;align-self:stretch;cursor:col-resize;position:relative;background:transparent;}
+  .split-handle::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:48px;border-radius:2px;background:var(--line-green);transition:.15s;}
+  .split-handle:hover::after,.split-handle.drag::after{background:var(--copper);height:104px;width:3px;}
+  .side-actions{display:flex;flex-direction:column;gap:8px;}
+  .side-actions .blk{width:100%;justify-content:center;}
+  .side-actions .btn.sm{background:rgba(255,255,255,.05);}
+  @media (max-width:980px){
+    .layout{flex-direction:column;gap:16px;}
+    #topPanel{flex:1 1 auto;width:100%;position:static;max-height:none;}
+    .split-handle{display:none;}
+  }
+  /* 大标题删除后视口相应变高（原 415px 含 content-head 约 76px） */
+  .vs-viewport{height:calc(100vh - 340px);}
+  /* ---- 卡片：圆角 24 / 内部左右 5:5 分栏 ---- */
+  .vs-card,.card{border-radius:var(--radius-lg);}
+  .card::before{left:22px;right:22px;}
+  .card .cv{border-right:1px solid var(--line-green);}
+  .card .cv .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:linear-gradient(165deg,#2d3330,#24282b 58%,#1d2023);}
+  .card .cv .ph svg{width:26px;height:26px;opacity:.62;}
+  .card .cv .ph span{font-size:10.5px;letter-spacing:2px;color:var(--faint);}
+  .card .meta{padding:14px;gap:9px;justify-content:center;}
+  .card .r1{padding-right:0;gap:8px;}
+  .card .code{font-family:var(--mono);font-size:12.5px;}
+  .card .ttl{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-line-clamp:none;}
+  .card .r3{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .r3 .mono{font-family:var(--mono);}
 </style>
 </head>
 <body>
 <div class="arc a1" aria-hidden="true"></div>
 <div class="arc a2" aria-hidden="true"></div>
 <div class="wrap">
-  <!-- ================= 顶栏 ================= -->
-  <header class="topbar glass">
-    <div class="brand">
-      <h1>Film Library</h1>
-      <span class="sub" id="appVer">v2.1.38 · 本地服务版</span>
-    </div>
-    <div class="dirbar-inline" id="dirBar">
-      <span class="dot"></span>
-      <span class="dpath" id="dirPath">未连接数据目录</span>
-      <span id="dirCounts" class="sub"></span>
-      <button class="btn sm" id="btnChangeDir">设置数据目录</button>
-    </div>
-  </header>
 
   <!-- ================= 四块导航 ================= -->
   <nav class="mainTabs glass" id="mainTabs">
-    <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
-    <button class="tab" data-tab="video">Video</button>
-    <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
-    <button class="tab" data-tab="tag">Tag <span class="n" id="tabCountTag">0</span></button>
+    <div class="nav-brand">
+      <h1>Film Library</h1>
+      <span class="sub" id="appVer">v2.1.39 · 本地服务版</span>
+    </div>
+    <div class="nav-center">
+      <button class="tab on" data-tab="home">主页 <span class="n" id="tabCountHome">0</span></button>
+      <button class="tab" data-tab="video">Video</button>
+      <button class="tab" data-tab="actor">Actor <span class="n" id="tabCountActor">0</span></button>
+      <button class="tab" data-tab="tag">Tag <span class="n" id="tabCountTag">0</span></button>
+    </div>
+    <div class="nav-right">
+      <div class="dirbar-inline" id="dirBar">
+        <span class="dot"></span>
+        <span class="dpath" id="dirPath">未连接数据目录</span>
+        <span id="dirCounts" class="sub"></span>
+        <button class="btn sm" id="btnChangeDir">设置数据目录</button>
+      </div>
+    </div>
   </nav>
 
   <!-- ================= 主页 ================= -->
   <section id="pageHome">
     <div class="layout">
       <aside id="topPanel">
+        <div class="side-block glass side-actions">
+          <button class="btn primary blk" id="addBtnTop">＋ 添加影片</button>
+          <button class="btn sm blk" id="viewSwitchBtn">切换视图：表格</button>
+          <button class="btn sm blk" id="panelFoldBtn">◀ 收起侧栏</button>
+        </div>
         <!-- 视图切换（v2.1.10：原 div.view-bar 的内容整体迁入左栏） -->
         <div class="side-block glass">
           <div class="side-label">视图</div>
@@ -531,7 +593,7 @@
             <option value="updated_asc">更新时间 ↑</option>
           </select>
         </div>
-        <div class="side-block glass">
+        <div class="side-block glass hidden" id="presetBlock">
           <div class="side-label">筛选预设</div>
           <div class="preset-row">
             <input id="presetName" placeholder="预设名称（如：未看的花子）" maxlength="20">
@@ -556,21 +618,14 @@
           </div>
         </div>
       </aside>
+      <div class="split-handle" id="splitHandle" title="拖动调整侧栏宽度（双击复位）"></div>
 
       <div class="content">
-        <div class="content-head">
-          <div>
-            <h2>影片库</h2>
-            <p class="sub">当前显示 <span class="mono" id="statShown">0</span> 部 · 全部 <span class="mono" id="statAll">0</span> 部 · 截图 <span class="mono" id="statShots">0</span> 张</p>
-          </div>
-          <div class="head-actions">
-            <button class="btn primary" id="addBtnTop">＋ 添加影片</button>
-          </div>
-        </div>
         <div class="search-row">
           <div class="search-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input id="searchInput" placeholder="搜索：番号 / 标题 / 演员 / 标签 / 备注 / 系列 / 导演 / 发行商 / 来源 / 影片日期，支持 字段:值 -排除 "短语" a|b" autocomplete="off">
+            <button class="sb-clear" id="searchClear" title="清空">×</button>
           </div>
           <select id="searchScope" class="search-scope" title="搜索范围">
             <option value="all">全部字段</option>
@@ -586,9 +641,9 @@
             <option value="platform">仅来源</option>
             <option value="release">仅影片日期</option>
           </select>
-          <button class="regex-toggle" id="regexToggle" title="正则模式">正则</button>
+          <button class="btn primary sb-search" id="btnSearch">搜索</button>
+          <button class="regex-toggle mono" id="regexToggle" title="正则模式（整个输入作为正则匹配）">RegExp</button>
           <button class="q-help-btn" id="qHelpBtn" title="搜索语法帮助">?</button>
-          <button class="btn sm" id="searchClear">清空</button>
           <div class="regex-hint" id="regexHint">正则模式：整个输入作为正则匹配（非法正则视为无结果）</div>
           <div class="q-help" id="qHelp"></div>
         </div>
@@ -924,7 +979,7 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.38';
+  var APP_VERSION = '2.1.39';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
@@ -940,8 +995,8 @@
   /* v2.1.38：封面 30%(100/340) -> 40%，卡片随之变高（h = cvW * 1.5，封面恒定 2:3）。
      h 必须与 k 对齐：340*0.4=136 -> 136*1.5=204；紧凑 272*0.32=87 -> 87*1.5=131。
      改 k 不改 h 会让 VS.rowH 初值与实测值不符（首屏错位一行的高度）。 */
-  var CARD = { w: 340, h: 204, gap: 12, pad: 12, minW: 260, k: 0.4, cvMax: 260 };
-  var CARD_C = { w: 272, h: 131, gap: 8, pad: 8, minW: 200, k: 0.32, cvMax: 190 };
+  var CARD = { w: 290, h: 152, gap: 12, pad: 12, minW: 240, k: 0.5, cvMax: 240 };
+  var CARD_C = { w: 240, h: 116, gap: 8, pad: 8, minW: 190, k: 0.5, cvMax: 160 };
   var ROW_H = 34;
   /* v2.1.29 A-11：表格 sticky 表头高度。滚动总量必须算上它——旧版 spacer 只按
      行数×ROW_H 估，末行永远差一截滚不到（实测 thead≈37px）。render 先用此默认值，
@@ -2057,7 +2112,10 @@ function bindTag(){
       var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
       var cvW = Math.min(Math.round(w * g.k), g.cvMax);
-      var h = Math.round(cvW * 1.5);
+      /* v2.1.39：卡片内部改 5:5 分栏后，卡高不再由封面的 2:3 反推——
+         那样卡宽一大卡片就失控变高（390 宽 → 234 高）。高度改由 CARD.h 直接下发，
+         封面区 = 卡宽×k 宽 × 卡高 满高，图片 object-fit:cover 自适应。 */
+      var h = g.h;
       return { cols: cols, w: w, cvW: cvW, h: h, rowH: h + g.gap, pad: g.pad };
     },
     render: function () {
@@ -2156,23 +2214,25 @@ function bindTag(){
     var sel = state.sel[r.id] ? ' sel' : '';
     var badges = '<span class="badge st-' + escapeHtml(r.status) + '">' + escapeHtml(r.status) + '</span>' +
       (r.downloaded ? '<span class="badge dl">已下载</span>' : '');
-    /* tags 可能是数组也可能是逗号串（导入/收件箱路径），统一走 splitList */
-    var tags = splitList(r.tags).slice(0, 3).map(function (t) {
-      return '<span class="ctag">' + escapeHtml(t) + '</span>';
-    }).join('');
-    /* v2.1.16：副行 = 系列 · 来源 · 发行商 · 影片日期（.r5 溢出省略号截断） */
-    var sub = [r.series, r.platform, r.maker, r.release].filter(function (x) { return !!x; }).join(' · ');
     var actor = statsActorNames(r).join(' / ');
-    var shots = (r.shots || []).length;
+    /* v2.1.39：内部左右 5:5 分栏。左半 = 封面区（无封面时占位：深绿灰渐变 +
+       线性封面图标 +「封面」二字，右缘一条分隔竖线）；右半自上而下 番号 / 标题
+       （单行省略）/ 演员，行内只用留白分隔、不画分割线，番号走等宽字体。 */
     return '<div class="vs-card card' + sel + '" data-id="' + r.id + '">' +
-      '<div class="cv" data-cv="1">' + (img ? '<img loading="lazy" src="' + escapeHtml(img) + '" alt="">' : '<div class="nocover">无封面</div>') + '</div>' +
+      '<div class="cv" data-cv="1">' +
+        (img
+          ? '<img loading="lazy" src="' + escapeHtml(img) + '" alt="">'
+          : '<div class="ph">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+            '<rect x="3" y="4" width="18" height="16" rx="2"/>' +
+            '<circle cx="8.6" cy="9" r="1.5"/>' +
+            '<path d="M3 17l5.2-5.2 3.4 3.4 3-3L21 17"/></svg>' +
+            '<span>封面</span></div>') +
+      '</div>' +
       '<div class="meta">' +
         '<div class="r1"><span class="code">' + escapeHtml(r.code) + '</span><span class="badges">' + badges + '</span></div>' +
         '<div class="ttl">' + escapeHtml(r.titleCn || r.title || '（无标题）') + '</div>' +
-        '<div class="r3">演员：' + escapeHtml(actor || '—') + '</div>' +
-        '<div class="r4">' + tags + '</div>' +
-        '<div class="r5">' + escapeHtml(sub || '—') + '</div>' +
-        '<div class="r6">截图 ' + shots + (r.note ? ' · 有备注' : '') + '</div>' +
+        '<div class="r3">' + escapeHtml(actor || '—') + '</div>' +
       '</div>' +
       '<div class="ck" data-ck="1">' + (state.sel[r.id] ? '✓' : '') + '</div>' +
     '</div>';
@@ -4422,6 +4482,13 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
       refreshAll();
     });
     $('#searchScope').addEventListener('change', function () { state.filter.scope = this.value; refreshAll(); });
+    var sbBtn = $('#btnSearch');
+    if (sbBtn) sbBtn.addEventListener('click', function () {
+      clearTimeout(_searchDebounce);
+      state.filter.text = $('#searchInput').value;
+      if (state.filter.regex) VS.render();
+      refreshAll();
+    });
     $('#regexToggle').addEventListener('click', function () {
       state.filter.regex = !state.filter.regex;
       this.classList.toggle('on', state.filter.regex);
@@ -4470,6 +4537,10 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
     var addTop = $('#addBtnTop');
     if (addTop) addTop.addEventListener('click', function () { openForm(null); });
     $('#viewCardBtn').addEventListener('click', function () { setView('card'); });
+    var swBtn = $('#viewSwitchBtn');
+    if (swBtn) swBtn.addEventListener('click', function () { setView(state.view === 'card' ? 'table' : 'card'); });
+    bindSplit();
+    bindFold();
     $('#viewTableBtn').addEventListener('click', function () { setView('table'); });
     $('#compactToggle').addEventListener('change', function () {
       state.compact = this.checked;
@@ -4488,6 +4559,54 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
       rz = setTimeout(function () { VS.render(); syncNavH(); }, 150);
     });
   }
+  /* v2.1.34：主导航改为浮动吸顶卡。  /* v2.1.39 Split View：分隔条拖拽改侧栏宽度，双击复位，宽度存 localStorage。
+     宽度写 CSS 变量 --split-w（#topPanel 的 flex-basis/width 读它），避免与响应式规则打架。 */
+  var SPLIT_KEY = 'wb_film_v2_splitw', SPLIT_DEF = 264;
+  function bindSplit() {
+    var h = document.getElementById('splitHandle'), panel = document.getElementById('topPanel');
+    if (!h || !panel) return;
+    function apply(w) { document.documentElement.style.setProperty('--split-w', w + 'px'); }
+    var saved = 0;
+    try { saved = parseInt(localStorage.getItem(SPLIT_KEY) || '', 10) || 0; } catch (e) { saved = 0; }
+    if (saved >= 200 && saved <= 560) apply(saved);
+    var dragging = false, startX = 0, startW = 0;
+    h.addEventListener('mousedown', function (ev) {
+      if (panel.classList.contains('fold')) return;
+      dragging = true; startX = ev.clientX; startW = panel.getBoundingClientRect().width;
+      h.classList.add('drag'); document.body.style.userSelect = 'none'; ev.preventDefault();
+    });
+    window.addEventListener('mousemove', function (ev) {
+      if (!dragging) return;
+      apply(Math.max(200, Math.min(560, Math.round(startW + (ev.clientX - startX)))));
+      VS.render();
+    });
+    window.addEventListener('mouseup', function () {
+      if (!dragging) return;
+      dragging = false; h.classList.remove('drag'); document.body.style.userSelect = '';
+      var w = Math.round(panel.getBoundingClientRect().width);
+      try { localStorage.setItem(SPLIT_KEY, String(w)); } catch (e) {}
+      VS.render();
+    });
+    h.addEventListener('dblclick', function () {
+      apply(SPLIT_DEF);
+      try { localStorage.removeItem(SPLIT_KEY); } catch (e) {}
+      VS.render();
+    });
+  }
+  /* v2.1.39：侧栏折叠。收起后分隔条仍在，可随时拖回来或点按钮展开。 */
+  function bindFold() {
+    var btn = document.getElementById('panelFoldBtn');
+    var panel = document.getElementById('topPanel');
+    var h = document.getElementById('splitHandle');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function () {
+      var folded = panel.classList.toggle('fold');
+      btn.textContent = folded ? '▶ 展开侧栏' : '◀ 收起侧栏';
+      if (h) h.classList.toggle('folded', folded);
+      VS.render();
+    });
+  }
+
   /* v2.1.34：主导航改为浮动吸顶卡。窄屏会换行变高，故实测其高度写入 --navH，
      供 #topPanel / .p-side 的 sticky 偏移避让（写死高度会在换行时错位）。 */
   function syncNavH() {
@@ -4501,6 +4620,8 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
     lsSet(LS.view, v);
     $('#viewCardBtn').classList.toggle('on', v === 'card');
     $('#viewTableBtn').classList.toggle('on', v === 'table');
+    var sw = $('#viewSwitchBtn');
+    if (sw) sw.textContent = '切换视图：' + (v === 'card' ? '表格' : '卡片');
     VS.render();
   }
   function bindCards() {

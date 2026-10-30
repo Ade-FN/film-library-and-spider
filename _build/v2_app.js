@@ -12,7 +12,7 @@
   /* ==========================================================================
    * §0 常量与状态
    * ======================================================================== */
-  var APP_VERSION = '2.1.38';
+  var APP_VERSION = '2.1.39';
   var STATUS = ['未看', '想看', '已看'];
   var LS = {
     tab: 'wb_film_v2_tab', view: 'wb_film_v2_view', compact: 'wb_film_v2_compact',
@@ -28,8 +28,8 @@
   /* v2.1.38：封面 30%(100/340) -> 40%，卡片随之变高（h = cvW * 1.5，封面恒定 2:3）。
      h 必须与 k 对齐：340*0.4=136 -> 136*1.5=204；紧凑 272*0.32=87 -> 87*1.5=131。
      改 k 不改 h 会让 VS.rowH 初值与实测值不符（首屏错位一行的高度）。 */
-  var CARD = { w: 340, h: 204, gap: 12, pad: 12, minW: 260, k: 0.4, cvMax: 260 };
-  var CARD_C = { w: 272, h: 131, gap: 8, pad: 8, minW: 200, k: 0.32, cvMax: 190 };
+  var CARD = { w: 290, h: 152, gap: 12, pad: 12, minW: 240, k: 0.5, cvMax: 240 };
+  var CARD_C = { w: 240, h: 116, gap: 8, pad: 8, minW: 190, k: 0.5, cvMax: 160 };
   var ROW_H = 34;
   /* v2.1.29 A-11：表格 sticky 表头高度。滚动总量必须算上它——旧版 spacer 只按
      行数×ROW_H 估，末行永远差一截滚不到（实测 thead≈37px）。render 先用此默认值，
@@ -655,7 +655,10 @@
       var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
       var cvW = Math.min(Math.round(w * g.k), g.cvMax);
-      var h = Math.round(cvW * 1.5);
+      /* v2.1.39：卡片内部改 5:5 分栏后，卡高不再由封面的 2:3 反推——
+         那样卡宽一大卡片就失控变高（390 宽 → 234 高）。高度改由 CARD.h 直接下发，
+         封面区 = 卡宽×k 宽 × 卡高 满高，图片 object-fit:cover 自适应。 */
+      var h = g.h;
       return { cols: cols, w: w, cvW: cvW, h: h, rowH: h + g.gap, pad: g.pad };
     },
     render: function () {
@@ -754,23 +757,25 @@
     var sel = state.sel[r.id] ? ' sel' : '';
     var badges = '<span class="badge st-' + escapeHtml(r.status) + '">' + escapeHtml(r.status) + '</span>' +
       (r.downloaded ? '<span class="badge dl">已下载</span>' : '');
-    /* tags 可能是数组也可能是逗号串（导入/收件箱路径），统一走 splitList */
-    var tags = splitList(r.tags).slice(0, 3).map(function (t) {
-      return '<span class="ctag">' + escapeHtml(t) + '</span>';
-    }).join('');
-    /* v2.1.16：副行 = 系列 · 来源 · 发行商 · 影片日期（.r5 溢出省略号截断） */
-    var sub = [r.series, r.platform, r.maker, r.release].filter(function (x) { return !!x; }).join(' · ');
     var actor = statsActorNames(r).join(' / ');
-    var shots = (r.shots || []).length;
+    /* v2.1.39：内部左右 5:5 分栏。左半 = 封面区（无封面时占位：深绿灰渐变 +
+       线性封面图标 +「封面」二字，右缘一条分隔竖线）；右半自上而下 番号 / 标题
+       （单行省略）/ 演员，行内只用留白分隔、不画分割线，番号走等宽字体。 */
     return '<div class="vs-card card' + sel + '" data-id="' + r.id + '">' +
-      '<div class="cv" data-cv="1">' + (img ? '<img loading="lazy" src="' + escapeHtml(img) + '" alt="">' : '<div class="nocover">无封面</div>') + '</div>' +
+      '<div class="cv" data-cv="1">' +
+        (img
+          ? '<img loading="lazy" src="' + escapeHtml(img) + '" alt="">'
+          : '<div class="ph">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+            '<rect x="3" y="4" width="18" height="16" rx="2"/>' +
+            '<circle cx="8.6" cy="9" r="1.5"/>' +
+            '<path d="M3 17l5.2-5.2 3.4 3.4 3-3L21 17"/></svg>' +
+            '<span>封面</span></div>') +
+      '</div>' +
       '<div class="meta">' +
         '<div class="r1"><span class="code">' + escapeHtml(r.code) + '</span><span class="badges">' + badges + '</span></div>' +
         '<div class="ttl">' + escapeHtml(r.titleCn || r.title || '（无标题）') + '</div>' +
-        '<div class="r3">演员：' + escapeHtml(actor || '—') + '</div>' +
-        '<div class="r4">' + tags + '</div>' +
-        '<div class="r5">' + escapeHtml(sub || '—') + '</div>' +
-        '<div class="r6">截图 ' + shots + (r.note ? ' · 有备注' : '') + '</div>' +
+        '<div class="r3">' + escapeHtml(actor || '—') + '</div>' +
       '</div>' +
       '<div class="ck" data-ck="1">' + (state.sel[r.id] ? '✓' : '') + '</div>' +
     '</div>';
@@ -1706,6 +1711,13 @@
       refreshAll();
     });
     $('#searchScope').addEventListener('change', function () { state.filter.scope = this.value; refreshAll(); });
+    var sbBtn = $('#btnSearch');
+    if (sbBtn) sbBtn.addEventListener('click', function () {
+      clearTimeout(_searchDebounce);
+      state.filter.text = $('#searchInput').value;
+      if (state.filter.regex) VS.render();
+      refreshAll();
+    });
     $('#regexToggle').addEventListener('click', function () {
       state.filter.regex = !state.filter.regex;
       this.classList.toggle('on', state.filter.regex);
@@ -1754,6 +1766,10 @@
     var addTop = $('#addBtnTop');
     if (addTop) addTop.addEventListener('click', function () { openForm(null); });
     $('#viewCardBtn').addEventListener('click', function () { setView('card'); });
+    var swBtn = $('#viewSwitchBtn');
+    if (swBtn) swBtn.addEventListener('click', function () { setView(state.view === 'card' ? 'table' : 'card'); });
+    bindSplit();
+    bindFold();
     $('#viewTableBtn').addEventListener('click', function () { setView('table'); });
     $('#compactToggle').addEventListener('change', function () {
       state.compact = this.checked;
@@ -1772,6 +1788,54 @@
       rz = setTimeout(function () { VS.render(); syncNavH(); }, 150);
     });
   }
+  /* v2.1.34：主导航改为浮动吸顶卡。  /* v2.1.39 Split View：分隔条拖拽改侧栏宽度，双击复位，宽度存 localStorage。
+     宽度写 CSS 变量 --split-w（#topPanel 的 flex-basis/width 读它），避免与响应式规则打架。 */
+  var SPLIT_KEY = 'wb_film_v2_splitw', SPLIT_DEF = 264;
+  function bindSplit() {
+    var h = document.getElementById('splitHandle'), panel = document.getElementById('topPanel');
+    if (!h || !panel) return;
+    function apply(w) { document.documentElement.style.setProperty('--split-w', w + 'px'); }
+    var saved = 0;
+    try { saved = parseInt(localStorage.getItem(SPLIT_KEY) || '', 10) || 0; } catch (e) { saved = 0; }
+    if (saved >= 200 && saved <= 560) apply(saved);
+    var dragging = false, startX = 0, startW = 0;
+    h.addEventListener('mousedown', function (ev) {
+      if (panel.classList.contains('fold')) return;
+      dragging = true; startX = ev.clientX; startW = panel.getBoundingClientRect().width;
+      h.classList.add('drag'); document.body.style.userSelect = 'none'; ev.preventDefault();
+    });
+    window.addEventListener('mousemove', function (ev) {
+      if (!dragging) return;
+      apply(Math.max(200, Math.min(560, Math.round(startW + (ev.clientX - startX)))));
+      VS.render();
+    });
+    window.addEventListener('mouseup', function () {
+      if (!dragging) return;
+      dragging = false; h.classList.remove('drag'); document.body.style.userSelect = '';
+      var w = Math.round(panel.getBoundingClientRect().width);
+      try { localStorage.setItem(SPLIT_KEY, String(w)); } catch (e) {}
+      VS.render();
+    });
+    h.addEventListener('dblclick', function () {
+      apply(SPLIT_DEF);
+      try { localStorage.removeItem(SPLIT_KEY); } catch (e) {}
+      VS.render();
+    });
+  }
+  /* v2.1.39：侧栏折叠。收起后分隔条仍在，可随时拖回来或点按钮展开。 */
+  function bindFold() {
+    var btn = document.getElementById('panelFoldBtn');
+    var panel = document.getElementById('topPanel');
+    var h = document.getElementById('splitHandle');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function () {
+      var folded = panel.classList.toggle('fold');
+      btn.textContent = folded ? '▶ 展开侧栏' : '◀ 收起侧栏';
+      if (h) h.classList.toggle('folded', folded);
+      VS.render();
+    });
+  }
+
   /* v2.1.34：主导航改为浮动吸顶卡。窄屏会换行变高，故实测其高度写入 --navH，
      供 #topPanel / .p-side 的 sticky 偏移避让（写死高度会在换行时错位）。 */
   function syncNavH() {
@@ -1785,6 +1849,8 @@
     lsSet(LS.view, v);
     $('#viewCardBtn').classList.toggle('on', v === 'card');
     $('#viewTableBtn').classList.toggle('on', v === 'table');
+    var sw = $('#viewSwitchBtn');
+    if (sw) sw.textContent = '切换视图：' + (v === 'card' ? '表格' : '卡片');
     VS.render();
   }
   function bindCards() {
