@@ -119,11 +119,15 @@
   .stat-bar .n{flex:0 0 30px;text-align:right;color:var(--muted);}
   .tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;}
   .tool-grid .btn{width:100%;}
+  /* 筛选与排序合并块：小标签 + 紧凑下拉纵向排列，不留空白 */
+  .filter-field{display:flex;align-items:center;gap:9px;margin-top:8px;}
+  .filter-field .fl-label{flex:0 0 42px;flex:none;font-size:12px;color:var(--muted);letter-spacing:.5px;}
+  .filter-field select{flex:1;min-width:0;height:34px;padding:5px 11px;font-size:13px;}
 
   .content{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;}
 
   /* ---------- 搜索行 ---------- */
-  .search-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+  .search-row{position:relative;display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
   .search-box{position:relative;flex:1;min-width:220px;}
   .search-box input{padding-left:34px;}
   .search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none;opacity:.55;}
@@ -131,12 +135,14 @@
   .regex-toggle{flex:none;min-height:40px;padding:0 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--muted);display:flex;align-items:center;}
   .regex-toggle:hover{color:var(--txt);}
   .regex-toggle.on{background:rgba(182,109,68,.18);color:var(--copper-l);border-color:rgba(182,109,68,.55);}
-  .regex-hint{font-size:12px;color:var(--amber);display:none;width:100%;}
+  .regex-hint{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;display:none;
+    font-size:12px;color:var(--amber);background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;}
   .regex-hint.show{display:block;}
   .regex-hint.err{color:var(--red);}
   .q-help-btn{flex:none;width:30px;height:30px;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:13px;display:flex;align-items:center;justify-content:center;}
   .q-help-btn:hover{color:var(--txt);border-color:var(--muted);}
-  .q-help{display:none;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--muted);width:100%;}
+  .q-help{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;display:none;
+    background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--muted);}
   .q-help.show{display:block;line-height:1.9;}
   .q-help code{background:var(--bg);border-radius:5px;padding:1px 6px;color:var(--copper-l);}
 
@@ -466,6 +472,22 @@
   .sb-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:20px;height:20px;padding:0;border:none;border-radius:50%;background:rgba(255,255,255,.1);color:var(--muted);font-size:13px;line-height:1;display:none;align-items:center;justify-content:center;}
   .search-box input:not(:placeholder-shown) ~ .sb-clear{display:flex;}
   .sb-clear:hover{background:rgba(255,255,255,.2);color:var(--txt);}
+  .search-box input{padding-right:64px;}
+  .kbd-slash{position:absolute;right:34px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:0 7px;height:20px;line-height:18px;cursor:pointer;background:transparent;}
+  .kbd-slash:hover{color:var(--txt);border-color:var(--muted);}
+  /* 命令候选下拉：内联于主搜索框下方（不弹居中浮层；/ 仅聚焦主搜索框） */
+  .cmdk-drop{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:120;display:none;background:rgba(31,35,40,.96);backdrop-filter:blur(24px) saturate(128%);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 44px rgba(0,0,0,.5);overflow:hidden;}
+  .cmdk-drop.show{display:block;}
+  .cmdk-drop .cmdk-list{max-height:320px;overflow:auto;padding:6px;}
+  .cmdk-item{display:flex;align-items:center;gap:12px;padding:9px 13px;border-radius:10px;cursor:pointer;border-left:2px solid transparent;}
+  .cmdk-item.on{background:rgba(182,109,68,.14);border-left-color:var(--copper);}
+  .cmdk-item .c-code{font-family:var(--mono);font-size:12px;color:var(--copper);flex:none;width:76px;}
+  .cmdk-item .c-main{flex:1;min-width:0;}
+  .cmdk-item .c-title{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cmdk-item .c-sub{font-size:11.5px;color:var(--faint);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cmdk-item .c-st{flex:none;font-size:11px;color:var(--muted);}
+  .cmdk-empty{padding:18px;text-align:center;color:var(--faint);font-size:13px;}
+  .cmdk-drop .cmdk-foot{padding:7px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--faint);display:flex;gap:14px;}
   .sb-search{flex:none;min-height:40px;padding:0 22px;font-weight:600;}
   .regex-toggle.mono{font-family:var(--mono);letter-spacing:.4px;font-size:12px;}
   /* 「搜索范围」下拉：UI 移除、功能保留（DOM 与 change 监听原样保留，值恒为 all） */
@@ -477,16 +499,14 @@
   .split-handle{flex:0 0 16px;width:16px;align-self:stretch;cursor:col-resize;position:relative;background:transparent;}
   .split-handle::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:48px;border-radius:2px;background:var(--line-green);transition:.15s;}
   .split-handle:hover::after,.split-handle.drag::after{background:var(--copper);height:104px;width:3px;}
-  .side-actions{display:flex;flex-direction:column;gap:8px;}
-  .side-actions .blk{width:100%;justify-content:center;}
-  .side-actions .btn.sm{background:rgba(255,255,255,.05);}
   @media (max-width:980px){
     .layout{flex-direction:column;gap:16px;}
     #topPanel{flex:1 1 auto;width:100%;position:static;max-height:none;}
     .split-handle{display:none;}
+    .vs-viewport{height:auto;min-height:420px;}
   }
-  /* 大标题删除后视口相应变高（原 415px 含 content-head 约 76px） */
-  .vs-viewport{height:calc(100vh - 340px);}
+  /* 视口高度 = 窗口高 - 顶部导航卡 + 搜索行占用（约133px）+ 安全缓冲；桌面尽量拉高卡片区 */
+  .vs-viewport{height:calc(100vh - 184px);}
   /* ---- 卡片：圆角 24 / 内部左右 5:5 分栏 ---- */
   .vs-card,.card{border-radius:var(--radius-lg);}
   .card::before{left:22px;right:22px;}
@@ -533,11 +553,6 @@
   <section id="pageHome">
     <div class="layout">
       <aside id="topPanel">
-        <div class="side-block glass side-actions">
-          <button class="btn primary blk" id="addBtnTop">＋ 添加影片</button>
-          <button class="btn sm blk" id="viewSwitchBtn">切换视图：表格</button>
-          <button class="btn sm blk" id="panelFoldBtn">◀ 收起侧栏</button>
-        </div>
         <!-- 视图切换（v2.1.10：原 div.view-bar 的内容整体迁入左栏） -->
         <div class="side-block glass">
           <div class="side-label">视图</div>
@@ -550,50 +565,51 @@
           </div>
           <label class="switch" style="margin-top:6px" title="FL Spider 抓取写入收件箱后自动导入主库，无需手动点「全部导入并归档」（v2.1.30）"><input type="checkbox" id="autoInboxToggle" style="width:auto"> <b>自动导入收件箱</b></label>
         </div>
-        <!-- 库概况：默认折叠（details 不带 open 即折叠，点标题展开） -->
+        <!-- 状态与统计：默认折叠（details 不带 open 即折叠，点标题展开）；统计条与状态筛选 chips 合并同块 -->
         <details class="side-block glass" id="statBlock">
-          <summary class="side-label">库概况</summary>
+          <summary class="side-label">状态与统计</summary>
           <div class="stat-line"><span>总条目</span><b id="statFilms">0</b></div>
           <div class="stat-bars" id="statStatus"></div>
-        </details>
-        <div class="side-block glass">
-          <div class="side-label">状态</div>
-          <div class="chip-row" id="statusChips">
+          <div class="chip-row" id="statusChips" style="margin-top:9px">
             <button class="chip on" data-status="">全部</button>
             <button class="chip" data-status="未看">未看</button>
             <button class="chip" data-status="想看">想看</button>
             <button class="chip" data-status="已看">已看</button>
           </div>
-        </div>
-        <div class="side-block glass"><div class="side-label">演员</div><select id="actorFilter"><option value="">全部演员</option></select></div>
-        <div class="side-block glass"><div class="side-label">标签</div><select id="tagFilter"><option value="">全部标签</option></select></div>
+        </details>
         <div class="side-block glass">
-          <div class="side-label">待补全</div>
-          <select id="missFilter">
-            <option value="">不限</option>
-            <option value="pending">待补全资料</option>
-            <option value="cover">缺封面</option>
-            <option value="magnet">缺磁力</option>
-          </select>
-        </div>
-        <div class="side-block glass"><div class="side-label">排序</div>
-          <select id="sortSelect">
-            <option value="recent" selected>录入时间 ↓</option>
-            <option value="recent_asc">录入时间 ↑</option>
-            <option value="code_asc">编号 ↑</option>
-            <option value="code_desc">编号 ↓</option>
-            <option value="updated">更新时间 ↓</option>
-            <option value="updated_asc">更新时间 ↑</option>
-          </select>
+          <div class="side-label">筛选与排序</div>
+          <div class="filter-field"><span class="fl-label">演员</span>
+            <select id="actorFilter"><option value="">全部演员</option></select></div>
+          <div class="filter-field"><span class="fl-label">标签</span>
+            <select id="tagFilter"><option value="">全部标签</option></select></div>
+          <div class="filter-field"><span class="fl-label">待补全</span>
+            <select id="missFilter">
+              <option value="">不限</option>
+              <option value="pending">待补全资料</option>
+              <option value="cover">缺封面</option>
+              <option value="magnet">缺磁力</option>
+            </select>
+          </div>
+          <div class="filter-field"><span class="fl-label">排序</span>
+            <select id="sortSelect">
+              <option value="recent" selected>录入时间 ↓</option>
+              <option value="recent_asc">录入时间 ↑</option>
+              <option value="code_asc">编号 ↑</option>
+              <option value="code_desc">编号 ↓</option>
+              <option value="updated">更新时间 ↓</option>
+              <option value="updated_asc">更新时间 ↑</option>
+            </select>
+          </div>
         </div>
         <div class="side-block glass">
           <div class="side-label">工具</div>
           <div class="tool-grid">
             <button class="btn sm primary" id="addBtn">＋ 新增</button>
-            <button class="btn sm" id="inboxBtn">📥 收件箱</button>
-            <button class="btn sm" id="statsBtn">📊 统计图</button>
-            <button class="btn sm" id="fanzaBtn">📋 待抓清单</button>
-            <button class="btn sm" id="fillBtn">🧩 补全资料</button>
+            <button class="btn sm" id="inboxBtn">收件箱</button>
+            <button class="btn sm" id="statsBtn">统计图</button>
+            <button class="btn sm" id="fanzaBtn">待抓清单</button>
+            <button class="btn sm" id="fillBtn">补全资料</button>
             <button class="btn sm" id="exportJsonBtn">导出 JSON</button>
             <button class="btn sm" id="exportCsvBtn">导出 CSV</button>
             <button class="btn sm" id="exportXlsxBtn">导出 XLSX</button>
@@ -609,8 +625,13 @@
         <div class="search-row">
           <div class="search-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-            <input id="searchInput" placeholder="搜索：番号 / 标题 / 演员 / 标签 / 备注 / 系列 / 导演 / 发行商 / 来源 / 影片日期，支持 字段:值 -排除 "短语" a|b" autocomplete="off">
+            <input id="searchInput" placeholder="搜索：番号 / 标题 / 演员 / 标签 / 备注 / 系列 / 导演 / 发行商 / 来源 / 影片日期，支持 字段:值 -排除 「短语」 a|b" autocomplete="off">
             <button class="sb-clear" id="searchClear" title="清空">×</button>
+            <kbd class="kbd-slash" id="cmdkHint" title="聚焦搜索框（快捷键 /）">/</kbd>
+            <div class="cmdk-drop" id="cmdkDrop">
+              <div class="cmdk-list" id="cmdkList"></div>
+              <div class="cmdk-foot"><span>↑↓ 选择</span><span>Enter 打开条目</span><span>Esc 收起</span></div>
+            </div>
           </div>
           <select id="searchScope" class="search-scope" title="搜索范围">
             <option value="all">全部字段</option>
@@ -2037,17 +2058,13 @@ function bindTag(){
          此时 cols 被兜成 1 而 w 仍为负 → --card-w/--card-h 负值、rowH<=0，
          paint 的守卫直接 return，卡片区彻底画不出来。几何不可用即返回 null。 */
       if (!(avail > 0)) return null;
-      /* v2.1.38：目标列数 3 -> 4（对齐设计稿的「4 列卡片网格」）。
-         为什么必须同时改列数：封面提到 40% 后卡高 = 卡宽 × 0.4 × 1.5，
-         卡宽越大卡片越高——3 列时卡宽 390 → 卡高 234px，一屏只剩约 6 张。
-         改 4 列后卡宽 286 → 卡高 171px（≈ 设计稿的 176px），一屏约 10 张。
-         卡宽一律由「可用宽 - 列间距」均分得到，不封顶 → 任何宽度下都填满、左右不留白。
-         封面 2:3 恒定（宽 = 卡宽 × k，上限 cvMax；高 = 宽 × 1.5）。 */
-      var cols = 4;
-      if (Math.floor((avail - 3 * g.gap) / 4) < g.minW) {
-        /* 兜底必须按 minW 反推列数：旧版按 g.w(340) 反推，窄屏时会从 4 列
-           直接跳到 2 列（中间空一档），按 minW 才是逐档递减。 */
-        cols = Math.max(1, Math.min(4, Math.floor((avail + g.gap) / (g.minW + g.gap))));
+      /* 目标列数优先 3（对齐原型 repeat(3,1fr)）。卡宽由「可用宽 - 列间距」均分得到，
+         不封顶 → 任意宽度都填满、左右不留白；3 列每列更宽，封面按 k=0.5 随卡宽缩放。
+         窄屏容不下 minW 时按 minW 反推降到 2 / 1 列。 */
+      var cols = 3;
+      if (Math.floor((avail - 2 * g.gap) / 3) < g.minW) {
+        /* 兜底按 minW 反推列数，窄屏逐档递减（3 -> 2 -> 1），避免跳档。 */
+        cols = Math.max(1, Math.min(3, Math.floor((avail + g.gap) / (g.minW + g.gap))));
       }
       var w = Math.max(g.minW, Math.floor((avail - (cols - 1) * g.gap) / cols));
       /* 封面随卡宽等比缩放（2:3 恒定）：宽 = 卡宽 × k（上限 cvMax），高 = 宽 × 1.5 */
@@ -4397,8 +4414,8 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
   function resetRegexHint(on) {
     var h = $('#regexHint');
     if (!h) return;
-    h.classList.toggle('show', !!on);
-    h.classList.remove('err');
+    /* 开启/关闭 RegExp 都不再弹出常驻说明；仅非法正则由 buildMatcher 以 err 浮层提示。 */
+    h.classList.remove('show','err');
     h.textContent = REGEX_HINT_DEFAULT;
   }
   /* v2.1.27 BUG-24：防抖定时器必须是模块级的——应用预设时要能从外部撤销。
@@ -4444,6 +4461,66 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
       '· <code>"短语"</code> 引号内不当分词<br>' +
       '· <code>a|b</code> 或（标签:巨乳|美乳）<br>' +
       '· <code>\\</code> 转义。不含以上语法时按「搜索范围 + 子串/正则」匹配。';
+  }
+  /* 命令候选下拉：内联于主搜索框；/ 或点 / 徽标仅聚焦搜索框；↑↓ 选择、Enter 打开详情、Esc 收起。
+     仅用于快速定位并打开详情，不写 state.filter.text，不介入主网格防抖过滤链路。 */
+  function bindCmdk() {
+    var inp = $('#searchInput'), drop = $('#cmdkDrop'), list = $('#cmdkList'), hint = $('#cmdkHint');
+    if (!inp || !drop || !list) return;
+    var rows = [], sel = -1;
+    function hay(r) {
+      return [r.code, r.title, r.titleCn, r.actor, r.actorF, r.actorM, r.series, r.maker, (r.tags || []).join(' ')].join(' ').toLowerCase();
+    }
+    function match(r, q) {
+      if (!q) return true;
+      return q.toLowerCase().split(/\s+/).every(function (tk) { return hay(r).indexOf(tk) >= 0; });
+    }
+    function render() {
+      var q = inp.value.trim();
+      rows = (state.rows || []).filter(function (r) { return match(r, q); }).slice(0, 10);
+      if (!rows.length) { list.innerHTML = '<div class="cmdk-empty">没有匹配的条目</div>'; sel = -1; return; }
+      sel = Math.max(0, Math.min(sel, rows.length - 1));
+      list.innerHTML = rows.map(function (r, i) {
+        var name = r.titleCn || r.title || '（无标题）';
+        var sub = [r.actor || r.actorF || r.actorM || '演员未填', r.status, (r.tags || []).slice(0, 3).join('、')].filter(Boolean).join(' · ');
+        return '<div class="cmdk-item' + (i === sel ? ' on' : '') + '" data-id="' + escapeHtml(String(r.id)) + '">'
+          + '<span class="c-code">' + escapeHtml(r.code || '') + '</span>'
+          + '<span class="c-main"><div class="c-title">' + escapeHtml(name) + '</div>'
+          + '<div class="c-sub">' + escapeHtml(sub) + '</div></span>'
+          + '<span class="c-st">' + escapeHtml(r.status || '') + '</span></div>';
+      }).join('');
+      var on = list.querySelector('.cmdk-item.on');
+      if (on) on.scrollIntoView({ block: 'nearest' });
+    }
+    function show() { drop.classList.add('show'); }
+    function close() { drop.classList.remove('show'); sel = -1; }
+    function open() { sel = 0; render(); show(); setTimeout(function () { inp.focus(); }, 0); }
+    inp.addEventListener('input', function () { sel = 0; render(); show(); });
+    inp.addEventListener('focus', function () { sel = 0; render(); show(); });
+    inp.addEventListener('keydown', function (e) {
+      var open = drop.classList.contains('show');
+      if (e.key === 'Escape') { if (open) { e.preventDefault(); close(); } }
+      else if (e.key === 'ArrowDown' && open) { e.preventDefault(); if (rows.length) { sel = (sel + 1) % rows.length; render(); } }
+      else if (e.key === 'ArrowUp' && open) { e.preventDefault(); if (rows.length) { sel = (sel - 1 + rows.length) % rows.length; render(); } }
+      else if (e.key === 'Enter') { if (open && rows[sel]) { e.preventDefault(); var r = rows[sel]; close(); openDetail(r.id); } }
+    });
+    if (hint) hint.addEventListener('click', open);
+    list.addEventListener('click', function (e) {
+      var it = e.target.closest('.cmdk-item'); if (!it) return;
+      var idAttr = it.getAttribute('data-id');
+      var row = rows.filter(function (x) { return String(x.id) === idAttr; })[0];
+      close();
+      if (row) openDetail(row.id);
+    });
+    document.addEventListener('mousedown', function (e) {
+      if (!e.target.closest('.cmdk-drop') && !e.target.closest('.search-box')) close();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== '/') return;
+      var tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+      e.preventDefault(); open();
+    });
   }
   function bindFilters() {
     $all('#statusChips .chip').forEach(function (b) {
@@ -4919,7 +4996,7 @@ function baseOf(p){ return String(p || '').split('/').pop(); }
     $('#appVer').textContent = 'v' + APP_VERSION + ' · 本地服务版';
     syncNavH();
 
-    bindSearch(); bindFilters(); bindView(); bindCards(); bindBulk();
+    bindSearch(); bindCmdk(); bindFilters(); bindView(); bindCards(); bindBulk();
     bindDetail(); bindForm(); bindTools(); bindSetup(); bindTabs(); bindViewer(); bindLifecycle();
     /* v2.1.37 #30：五个 bind 串行且无故障隔离——任一个依赖的 DOM id 缺失/改名，
        第一个抛 null.addEventListener 之后，后面几个页面的事件全绑不上，页面整片
